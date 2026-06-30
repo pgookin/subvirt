@@ -1,0 +1,9 @@
+diff --git a/virtManager/object/storagepool.py b/virtManager/object/storagepool.py
+--- a/virtManager/object/storagepool.py
++++ b/virtManager/object/storagepool.py
+@@ -34,1 +34,2 @@ POOL_TYPE_DESCS = {
+     StoragePool.TYPE_ZFS: _("ZFS Pool"),
++    "truenas": _("TrueNAS managed storage"),
+@@ -132,1 +133,2 @@ class vmmStoragePool(vmmLibvirtObject):
+                 StoragePool.TYPE_ZFS,
++                "truenas",

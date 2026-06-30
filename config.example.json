@@ -1,0 +1,9 @@
+{
+  "truenas": {
+    "url": "wss://10.6.0.119/api/current",
+    "username": "libvirt_user",
+    "api_key_file": "/etc/truenas-libvirt/api-key",
+    "tls_verify": false,
+    "target_ip": "10.6.0.119"
+  }
+}

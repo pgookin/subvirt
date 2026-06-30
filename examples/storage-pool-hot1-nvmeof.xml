@@ -1,0 +1,10 @@
+<pool type='truenas'>
+  <name>truenas-hot1-nvmeof</name>
+  <source>
+    <name>hot1</name>
+    <protocol type='nvmeof'/>
+  </source>
+  <target>
+    <path>/dev/disk/by-id</path>
+  </target>
+</pool>

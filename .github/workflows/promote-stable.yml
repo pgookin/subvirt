@@ -1,0 +1,26 @@
+name: Promote stable
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_id:
+        description: Existing build ID already published to staging and tested
+        required: true
+
+jobs:
+  promote:
+    runs-on: [self-hosted, subvirt-build]
+    concurrency: subvirt-release
+    steps:
+      - uses: actions/checkout@v4
+      - name: Write release evidence
+        run: ./scripts/write-release-evidence.py --build-id "${{ inputs.build_id }}"
+      - name: Codex promotion gate
+        run: ./scripts/codex-release-gate.sh "${{ inputs.build_id }}"
+      - name: Promote stable
+        run: ./scripts/release.py promote --config release/release.json --build-id "${{ inputs.build_id }}" --execute
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: promotion-evidence-${{ inputs.build_id }}
+          path: artifacts/${{ inputs.build_id }}/

@@ -1,0 +1,10 @@
+<pool type='truenas'>
+  <name>truenas-hot1-iscsi</name>
+  <source>
+    <name>hot1</name>
+    <protocol type='iscsi'/>
+  </source>
+  <target>
+    <path>/dev/disk/by-id</path>
+  </target>
+</pool>

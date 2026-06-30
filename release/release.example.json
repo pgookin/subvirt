@@ -1,0 +1,46 @@
+{
+  "project": {
+    "name": "subvirt",
+    "repo_url": "git@github.com:pgookin/subvirt.git",
+    "branch": "main",
+    "workdir": "/srv/subvirt/build",
+    "artifact_dir": "/srv/subvirt/artifacts",
+    "source_mode": "git"
+  },
+  "hosts": {
+    "build": "subvirt-build",
+    "ubuntu_test": "subvirt-u24",
+    "alma_test": "subvirt-al10",
+    "repo": "subvirt-repo"
+  },
+  "repos": {
+    "aptly_repo_prefix": "subvirt-ubuntu-noble",
+    "apt_distribution": "noble",
+    "apt_component": "main",
+    "yum_distro_path": "almalinux/10",
+    "web_root": "/srv/repo/www"
+  },
+  "tests": {
+    "pool": "hot1",
+    "iscsi_pool": "truenas-hot1-iscsi",
+    "nvmeof_pool": "truenas-hot1-nvmeof",
+    "iscsi_pool_xml": "examples/storage-pool-hot1-iscsi.xml",
+    "nvmeof_pool_xml": "examples/storage-pool-hot1-nvmeof.xml",
+    "migration_domain": "subvirt-migration-smoke",
+    "run_migration": false
+  },
+  "upstream": {
+    "mirrors": {
+      "ubuntu": "http://archive.ubuntu.com/ubuntu",
+      "alma": "https://repo.almalinux.org/almalinux"
+    },
+    "ubuntu_suite": "noble",
+    "ubuntu_pockets": [
+      "updates",
+      "security"
+    ],
+    "ubuntu_component": "main",
+    "ubuntu_arch": "amd64",
+    "alma_appstream_path": "10/AppStream/x86_64_v2/os"
+  }
+}

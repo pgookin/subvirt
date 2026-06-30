@@ -1,0 +1,21 @@
+[Unit]
+Description=TrueNAS provider daemon for libvirt storage pools
+Documentation=man:libvirtd(8)
+After=network-online.target iscsid.service
+Wants=network-online.target iscsid.service
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/truenas-libvirt/truenas_provider_daemon.py --config /etc/truenas-libvirt/config.json --socket /run/truenas-libvirt/provider.sock daemon
+RuntimeDirectory=truenas-libvirt
+RuntimeDirectoryMode=0750
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=full
+ReadWritePaths=/etc/iscsi /var/lib/iscsi
+
+[Install]
+WantedBy=multi-user.target

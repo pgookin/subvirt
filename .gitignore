@@ -1,0 +1,34 @@
+# Local configuration and secrets
+config.json
+release/release.json
+.secrets/
+*.pem
+*.key
+id_*
+
+# Python/cache output
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Generated package/build artifacts
+artifacts/
+build/
+builddir-*/
+dist/
+provider-build/
+sources/
+work-clean/
+work-patchgen/
+*.deb
+*.dsc
+*.changes
+*.buildinfo
+*.rpm
+*.src.rpm
+*.tar.xz
+*.tar.gz
+*.tar.zst
+
+# Runtime scratch
+status

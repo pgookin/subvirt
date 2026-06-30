@@ -1,0 +1,66 @@
+name: Candidate release
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_id:
+        description: Unique build ID, for example 2026.06.30-1
+        required: true
+      ref:
+        description: Git ref to build
+        required: false
+        default: main
+      refresh_sources:
+        description: Refresh generated libvirt sources before building
+        required: false
+        default: "false"
+      ubuntu_version:
+        description: Ubuntu libvirt package version to refresh, when refresh_sources=true
+        required: false
+      alma_version:
+        description: Alma libvirt package version to refresh, when refresh_sources=true
+        required: false
+      promote_stable:
+        description: Run Codex gate and promote to stable after staging tests pass
+        required: false
+        default: "true"
+
+jobs:
+  release:
+    runs-on: [self-hosted, subvirt-build]
+    concurrency: subvirt-release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Refresh generated source trees
+        if: ${{ inputs.refresh_sources == 'true' }}
+        shell: bash
+        run: |
+          test -n "${{ inputs.ubuntu_version }}"
+          test -n "${{ inputs.alma_version }}"
+          ./scripts/refresh-libvirt-source.py --distro ubuntu --version "${{ inputs.ubuntu_version }}"
+          ./scripts/refresh-libvirt-source.py --distro alma --version "${{ inputs.alma_version }}"
+      - name: Build packages
+        run: ./scripts/release.py build --config release/release.json --ref "${{ inputs.ref }}" --build-id "${{ inputs.build_id }}" --execute
+      - name: Collect artifacts
+        run: ./scripts/release.py collect --config release/release.json --build-id "${{ inputs.build_id }}" --execute
+      - name: Test artifacts directly
+        run: ./scripts/release.py test-artifacts --config release/release.json --ref "${{ inputs.ref }}" --build-id "${{ inputs.build_id }}" --execute
+      - name: Publish staging
+        run: ./scripts/release.py publish-staging --config release/release.json --build-id "${{ inputs.build_id }}" --execute
+      - name: Test staging
+        run: ./scripts/release.py test-staging --config release/release.json --ref "${{ inputs.ref }}" --build-id "${{ inputs.build_id }}" --execute
+      - name: Write release evidence
+        run: ./scripts/write-release-evidence.py --build-id "${{ inputs.build_id }}"
+      - name: Codex promotion gate
+        if: ${{ inputs.promote_stable == 'true' }}
+        run: ./scripts/codex-release-gate.sh "${{ inputs.build_id }}"
+      - name: Promote stable
+        if: ${{ inputs.promote_stable == 'true' }}
+        run: ./scripts/release.py promote --config release/release.json --build-id "${{ inputs.build_id }}" --execute
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-evidence-${{ inputs.build_id }}
+          path: artifacts/${{ inputs.build_id }}/

@@ -1,0 +1,30 @@
+name: Check upstream libvirt
+
+on:
+  schedule:
+    - cron: "17 */8 * * *"
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: [self-hosted, subvirt-build]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check local mirrors
+        id: check
+        shell: bash
+        run: |
+          set +e
+          ./scripts/check-upstream.py --config release/release.example.json --lock release/upstream-lock.json --json-output upstream-report.json
+          rc=$?
+          set -e
+          cat upstream-report.json >> "$GITHUB_STEP_SUMMARY"
+          if [ "$rc" = "10" ]; then
+            echo "updates_available=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          exit "$rc"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: upstream-report
+          path: upstream-report.json

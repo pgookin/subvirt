@@ -12,6 +12,7 @@ import gzip
 import hashlib
 import json
 import lzma
+import os
 import re
 import shutil
 import subprocess
@@ -34,6 +35,20 @@ def run(argv: list[str], cwd: Path | None = None) -> None:
 def ensure_tool(name: str) -> None:
     if shutil.which(name) is None:
         raise SystemExit(f"{name} is required")
+
+
+
+def has_tool(name: str) -> bool:
+    return shutil.which(name) is not None
+
+
+def shell_join(argv: list[str]) -> str:
+    return " ".join(shlex_quote(part) for part in argv)
+
+
+def shlex_quote(value: str) -> str:
+    import shlex
+    return shlex.quote(value)
 
 
 
@@ -229,7 +244,46 @@ def spec_set_truenas_release(spec: Path, version: str) -> None:
     spec.write_text(text, encoding="utf-8")
 
 
+
+def refresh_alma_in_container(version: str) -> None:
+    runtime = os.environ.get("SUBVIRT_CONTAINER_RUNTIME", "podman")
+    image = os.environ.get("SUBVIRT_ALMA_BUILD_IMAGE", "localhost/subvirt-almalinux-10-build:latest")
+    containerfile = os.environ.get("SUBVIRT_ALMA_CONTAINERFILE", "containers/almalinux-10-build/Containerfile")
+    ensure_tool(runtime)
+    probe = subprocess.run([runtime, "image", "exists", image], check=False)
+    if probe.returncode != 0:
+        run([runtime, "build", "-t", image, "-f", containerfile, "."], cwd=ROOT)
+    command = shell_join([
+        "env",
+        "SUBVIRT_REFRESH_IN_CONTAINER=1",
+        "./scripts/refresh-libvirt-source.py",
+        "--distro",
+        "alma",
+        "--version",
+        version,
+    ])
+    run([
+        runtime,
+        "run",
+        "--rm",
+        "--security-opt",
+        "label=disable",
+        "-v",
+        f"{ROOT}:/work",
+        "-w",
+        "/work",
+        image,
+        "bash",
+        "-lc",
+        command,
+    ], cwd=ROOT)
+
+
 def refresh_alma(version: str) -> None:
+    required = ["rpm2cpio", "cpio", "patch", "dnf"]
+    if os.environ.get("SUBVIRT_REFRESH_IN_CONTAINER") != "1" and any(not has_tool(tool) for tool in required):
+        refresh_alma_in_container(version)
+        return
     ensure_tool("rpm2cpio")
     ensure_tool("cpio")
     ensure_tool("patch")

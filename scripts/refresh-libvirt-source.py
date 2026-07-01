@@ -8,11 +8,17 @@ sources/. Those paths are ignored and must not be committed.
 from __future__ import annotations
 
 import argparse
+import gzip
+import hashlib
+import json
+import lzma
 import re
 import shutil
 import subprocess
 import sys
+import urllib.request
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "build"
@@ -28,6 +34,143 @@ def run(argv: list[str], cwd: Path | None = None) -> None:
 def ensure_tool(name: str) -> None:
     if shutil.which(name) is None:
         raise SystemExit(f"{name} is required")
+
+
+
+def load_config(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    with path.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def upstream_config(config_path: Path) -> dict[str, Any]:
+    return load_config(config_path).get("upstream", {})
+
+
+def fetch_url(url: str) -> bytes:
+    print(f"+ fetch {url}", flush=True)
+    with urllib.request.urlopen(url, timeout=60) as response:
+        return response.read()
+
+
+def decode_metadata(url: str, data: bytes) -> str:
+    if url.endswith(".xz"):
+        data = lzma.decompress(data)
+    elif url.endswith(".gz"):
+        data = gzip.decompress(data)
+    return data.decode("utf-8")
+
+
+def parse_deb822(text: str) -> list[dict[str, str]]:
+    paragraphs: list[dict[str, str]] = []
+    fields: dict[str, str] = {}
+    current_key: str | None = None
+    for line in text.splitlines():
+        if not line:
+            if fields:
+                paragraphs.append(fields)
+                fields = {}
+            current_key = None
+            continue
+        if line.startswith((" ", "\t")):
+            if current_key is not None:
+                fields[current_key] += "\n" + line
+            continue
+        key, sep, value = line.partition(":")
+        if sep:
+            current_key = key
+            fields[key] = value.lstrip()
+    if fields:
+        paragraphs.append(fields)
+    return paragraphs
+
+
+def ubuntu_dist_names(upstream: dict[str, Any]) -> list[str]:
+    suite = str(upstream.get("ubuntu_suite", "noble"))
+    pockets = upstream.get("ubuntu_pockets", ["updates", "security"])
+    dist_names: list[str] = []
+    for pocket in pockets:
+        pocket = str(pocket)
+        if pocket in ("", "release", suite):
+            dist = suite
+        elif pocket.startswith(f"{suite}-"):
+            dist = pocket
+        else:
+            dist = f"{suite}-{pocket}"
+        if dist not in dist_names:
+            dist_names.append(dist)
+    if suite not in dist_names:
+        dist_names.append(suite)
+    return dist_names
+
+
+def find_ubuntu_source(version: str, config_path: Path) -> tuple[str, dict[str, str]]:
+    upstream = upstream_config(config_path)
+    mirrors = upstream.get("mirrors", {})
+    mirror = str(mirrors.get("ubuntu", "http://archive.ubuntu.com/ubuntu")).rstrip("/")
+    component = str(upstream.get("ubuntu_component", "main"))
+    errors: list[str] = []
+    for dist in ubuntu_dist_names(upstream):
+        base = f"{mirror}/dists/{dist}/{component}/source/Sources"
+        for suffix in (".xz", ".gz", ""):
+            url = base + suffix
+            try:
+                paragraphs = parse_deb822(decode_metadata(url, fetch_url(url)))
+            except Exception as exc:
+                errors.append(f"{url}: {exc}")
+                continue
+            for paragraph in paragraphs:
+                if paragraph.get("Package") == "libvirt" and paragraph.get("Version") == version:
+                    return mirror, paragraph
+    raise SystemExit("could not find Ubuntu libvirt source package "
+                     f"{version} in configured mirror metadata:\n" + "\n".join(errors))
+
+
+def source_files_from_paragraph(paragraph: dict[str, str]) -> list[dict[str, str]]:
+    checksums = paragraph.get("Checksums-Sha256", "")
+    files: list[dict[str, str]] = []
+    for line in checksums.splitlines():
+        parts = line.split()
+        if len(parts) == 3:
+            checksum, size, name = parts
+            files.append({"sha256": checksum, "size": size, "name": name})
+    if not files:
+        raise SystemExit("Ubuntu source paragraph did not include Checksums-Sha256")
+    return files
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def download_ubuntu_source_files(version: str, config_path: Path, out: Path) -> Path:
+    mirror, paragraph = find_ubuntu_source(version, config_path)
+    directory = paragraph.get("Directory")
+    if not directory:
+        raise SystemExit("Ubuntu source paragraph did not include Directory")
+    dsc: Path | None = None
+    for item in source_files_from_paragraph(paragraph):
+        name = item["name"]
+        dst = out / name
+        if dst.exists() and sha256(dst) == item["sha256"]:
+            print(f"+ keep {dst}", flush=True)
+        else:
+            data = fetch_url(f"{mirror}/{directory}/{name}")
+            dst.write_bytes(data)
+            actual = hashlib.sha256(data).hexdigest()
+            if actual != item["sha256"]:
+                dst.unlink(missing_ok=True)
+                raise SystemExit(f"sha256 mismatch for {name}: expected {item['sha256']}, got {actual}")
+        if name.endswith(".dsc"):
+            dsc = dst
+    if dsc is None:
+        raise SystemExit("Ubuntu source metadata did not include a .dsc")
+    return dsc
 
 
 def prepend_debian_changelog(src: Path, base_version: str) -> None:
@@ -47,17 +190,12 @@ def prepend_debian_changelog(src: Path, base_version: str) -> None:
     changelog.write_text(entry + old, encoding="utf-8")
 
 
-def refresh_ubuntu(version: str) -> None:
-    ensure_tool("apt-get")
+def refresh_ubuntu(version: str, config_path: Path) -> None:
     ensure_tool("dpkg-source")
     ensure_tool("patch")
     out = SOURCES / "u24"
     out.mkdir(parents=True, exist_ok=True)
-    run(["apt-get", "source", "--download-only", f"libvirt={version}"], cwd=out)
-    dscs = sorted(out.glob(f"libvirt_{version}.dsc")) or sorted(out.glob("libvirt_*.dsc"))
-    if not dscs:
-        raise SystemExit(f"no libvirt .dsc found in {out}")
-    dsc = dscs[-1]
+    dsc = download_ubuntu_source_files(version, config_path, out)
     generated = BUILD / f"libvirt-u24-{version.split('-')[0]}"
     if generated.exists():
         shutil.rmtree(generated)
@@ -116,9 +254,10 @@ def main(argv: list[str] = sys.argv[1:]) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--distro", choices=["ubuntu", "alma"], required=True)
     parser.add_argument("--version", required=True, help="distro package EVR without local +truenas/.truenas suffix")
+    parser.add_argument("--config", default="release/release.example.json", type=Path)
     args = parser.parse_args(argv)
     if args.distro == "ubuntu":
-        refresh_ubuntu(args.version)
+        refresh_ubuntu(args.version, args.config)
     else:
         refresh_alma(args.version)
     return 0

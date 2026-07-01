@@ -93,14 +93,28 @@ def remote_checkout(ctx: Context, host: str) -> None:
     if source_mode != "git":
         raise ValueError(f"unsupported project.source_mode: {source_mode}")
     repo_url = p["repo_url"]
+    origin_ref = f"origin/{ctx.ref}"
+    checkout = " ".join([
+        "if git rev-parse --verify --quiet",
+        q(origin_ref),
+        ">/dev/null; then git checkout --detach",
+        q(origin_ref),
+        "; else git checkout",
+        q(ctx.ref),
+        "; fi",
+    ])
     command = " && ".join([
         f"if test -d {q(workdir)}/.git; then true; else rm -rf {q(workdir)} && git clone {q(repo_url)} {q(workdir)}; fi",
         f"cd {q(workdir)}",
         "git fetch --tags --prune origin",
-        f"git checkout {q(ctx.ref)}",
+        checkout,
         "git submodule update --init --recursive || true",
     ])
     remote(host, command, ctx.execute)
+
+
+def checkout_build(ctx: Context) -> None:
+    remote_checkout(ctx, hosts(ctx)["build"])
 
 
 def build_ubuntu(ctx: Context) -> None:
@@ -329,7 +343,7 @@ def release(ctx: Context) -> None:
 
 def parse_args(argv: Iterable[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=["build", "collect", "test-artifacts", "publish-staging", "test-staging", "promote", "release"])
+    parser.add_argument("command", choices=["checkout-build", "build", "collect", "test-artifacts", "publish-staging", "test-staging", "promote", "release"])
     parser.add_argument("--config", default="release/release.json")
     parser.add_argument("--ref", default="HEAD")
     parser.add_argument("--build-id", required=True)
@@ -342,6 +356,7 @@ def main(argv: Iterable[str] = sys.argv[1:]) -> int:
     args = parse_args(argv)
     ctx = Context(load_config(Path(args.config)), args.execute, args.ref, args.build_id, args.test_id)
     actions = {
+        "checkout-build": lambda: checkout_build(ctx),
         "build": lambda: (build_ubuntu(ctx), build_alma(ctx)),
         "collect": lambda: collect_artifacts(ctx),
         "test-artifacts": lambda: test_artifacts(ctx),

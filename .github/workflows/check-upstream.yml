@@ -34,6 +34,10 @@ jobs:
       - name: Update upstream lock
         if: steps.check.outputs.updates_available == 'true'
         run: ./scripts/update-upstream-lock.py --report upstream-report.json --lock release/upstream-lock.json
+      - name: Derive candidate release inputs
+        if: steps.check.outputs.updates_available == 'true'
+        id: release_inputs
+        run: ./scripts/lock-release-inputs.py --github-output "$GITHUB_OUTPUT"
       - name: Create upstream refresh PR
         if: steps.check.outputs.updates_available == 'true'
         uses: peter-evans/create-pull-request@v6
@@ -44,8 +48,23 @@ jobs:
           title: Update tracked upstream libvirt versions
           body-path: upstream-report.json
           add-paths: release/upstream-lock.json
+      - name: Run trusted candidate release without stable promotion
+        if: steps.check.outputs.updates_available == 'true'
+        env:
+          BUILD_ID: ${{ steps.release_inputs.outputs.build_id }}
+          REF: ${{ github.sha }}
+          REFRESH_SOURCES: "true"
+          UBUNTU_VERSION: ${{ steps.release_inputs.outputs.ubuntu_version }}
+          ALMA_VERSION: ${{ steps.release_inputs.outputs.alma_version }}
+          PROMOTE_STABLE: "false"
+        run: ./scripts/run-candidate-release.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: upstream-report
           path: upstream-report.json
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.check.outputs.updates_available == 'true'
+        with:
+          name: upstream-candidate-evidence-${{ steps.release_inputs.outputs.build_id }}
+          path: artifacts/${{ steps.release_inputs.outputs.build_id }}/

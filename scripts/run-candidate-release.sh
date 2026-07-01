@@ -23,11 +23,28 @@ summary "- Ubuntu version: \`${UBUNTU_VERSION:-not set}\`"
 summary "- Alma version: \`${ALMA_VERSION:-not set}\`"
 summary "- Promote stable: \`$PROMOTE_STABLE\`"
 
+remote_quote() {
+  python3 -c 'import shlex, sys; print(shlex.quote(sys.argv[1]))' "$1"
+}
+
+config_value() {
+  python3 -c 'import json, sys; data=json.load(open(sys.argv[1])); cur=data;
+for key in sys.argv[2].split("."):
+    cur=cur[key]
+print(cur)' "$CONFIG" "$1"
+}
+
 if [[ "$REFRESH_SOURCES" == "true" ]]; then
   test -n "$UBUNTU_VERSION"
   test -n "$ALMA_VERSION"
-  ./scripts/refresh-libvirt-source.py --distro ubuntu --version "$UBUNTU_VERSION"
-  ./scripts/refresh-libvirt-source.py --distro alma --version "$ALMA_VERSION"
+  ./scripts/release.py checkout-build --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
+  BUILD_HOST=$(config_value hosts.build)
+  BUILD_WORKDIR=$(config_value project.workdir)
+  q_workdir=$(remote_quote "$BUILD_WORKDIR")
+  q_config=$(remote_quote "$CONFIG")
+  q_ubuntu_version=$(remote_quote "$UBUNTU_VERSION")
+  q_alma_version=$(remote_quote "$ALMA_VERSION")
+  ssh "$BUILD_HOST" "cd $q_workdir && ./scripts/refresh-libvirt-source.py --config $q_config --distro ubuntu --version $q_ubuntu_version && ./scripts/refresh-libvirt-source.py --config $q_config --distro alma --version $q_alma_version"
 fi
 
 ./scripts/release.py build --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute

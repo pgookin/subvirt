@@ -205,6 +205,44 @@ def prepend_debian_changelog(src: Path, base_version: str) -> None:
     changelog.write_text(entry + old, encoding="utf-8")
 
 
+
+def add_ubuntu_truenas_package(src: Path) -> None:
+    debian = src / "debian"
+    install_file = debian / "libvirt-daemon-driver-storage-truenas.install"
+    install_file.write_text(
+        "usr/lib/${DEB_HOST_MULTIARCH}/libvirt/storage-backend/libvirt_storage_backend_truenas.so\n",
+        encoding="utf-8",
+    )
+
+    control = debian / "control"
+    text = control.read_text(encoding="utf-8")
+    if "Package: libvirt-daemon-driver-storage-truenas\n" in text:
+        return
+    stanza = """Package: libvirt-daemon-driver-storage-truenas
+Section: admin
+Architecture: linux-any
+Multi-Arch: no
+Depends:
+ libvirt-daemon (= ${binary:Version}),
+ libvirt0 (= ${binary:Version}),
+ truenas-libvirt-provider,
+ ${misc:Depends},
+ ${shlibs:Depends},
+Description: Virtualization daemon TrueNAS storage driver
+ Libvirt is a C toolkit to interact with the virtualization capabilities
+ of recent versions of Linux (and other OSes). The library aims at providing
+ a long term stable C API for different virtualization mechanisms. It currently
+ supports QEMU, KVM, XEN, OpenVZ, LXC, and VirtualBox.
+ .
+ This package contains the libvirtd storage driver for TrueNAS-backed storage.
+
+"""
+    marker = "Package: libvirt-daemon-system\n"
+    if marker not in text:
+        raise SystemExit("could not find libvirt-daemon-system stanza in debian/control")
+    control.write_text(text.replace(marker, stanza + marker, 1), encoding="utf-8")
+
+
 def refresh_ubuntu(version: str, config_path: Path) -> None:
     ensure_tool("dpkg-source")
     ensure_tool("patch")
@@ -217,6 +255,7 @@ def refresh_ubuntu(version: str, config_path: Path) -> None:
     BUILD.mkdir(exist_ok=True)
     run(["dpkg-source", "-x", str(dsc), str(generated)])
     run(["patch", "-p1", "-i", str(PATCHES / "truenas-storage-backend-u24.patch")], cwd=generated)
+    add_ubuntu_truenas_package(generated)
     prepend_debian_changelog(generated, version)
     print(f"Ubuntu source ready: {generated}")
 

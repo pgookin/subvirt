@@ -8,6 +8,8 @@ REFRESH_SOURCES=${REFRESH_SOURCES:-false}
 UBUNTU_VERSION=${UBUNTU_VERSION:-}
 ALMA_VERSION=${ALMA_VERSION:-}
 PROMOTE_STABLE=${PROMOTE_STABLE:-false}
+BUILD_UBUNTU=${BUILD_UBUNTU:-true}
+BUILD_ALMA=${BUILD_ALMA:-true}
 
 summary() {
   if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
@@ -22,6 +24,8 @@ summary "- Refresh sources: \`$REFRESH_SOURCES\`"
 summary "- Ubuntu version: \`${UBUNTU_VERSION:-not set}\`"
 summary "- Alma version: \`${ALMA_VERSION:-not set}\`"
 summary "- Promote stable: \`$PROMOTE_STABLE\`"
+summary "- Build Ubuntu: \`$BUILD_UBUNTU\`"
+summary "- Build Alma: \`$BUILD_ALMA\`"
 
 remote_quote() {
   python3 -c 'import shlex, sys; print(shlex.quote(sys.argv[1]))' "$1"
@@ -38,17 +42,32 @@ local_host_matches() {
   python3 -c 'import socket, sys; host=sys.argv[1]; print("yes" if host in {"localhost", "127.0.0.1", "::1", socket.gethostname(), socket.getfqdn()} else "no")' "$1"
 }
 
+if [[ "$BUILD_UBUNTU" != "true" && "$BUILD_ALMA" != "true" ]]; then
+  echo "At least one of BUILD_UBUNTU or BUILD_ALMA must be true" >&2
+  exit 1
+fi
+
 if [[ "$REFRESH_SOURCES" == "true" ]]; then
-  test -n "$UBUNTU_VERSION"
-  test -n "$ALMA_VERSION"
   ./scripts/release.py checkout-build --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
   BUILD_HOST=$(config_value hosts.build)
   BUILD_WORKDIR=$(config_value project.workdir)
   q_workdir=$(remote_quote "$BUILD_WORKDIR")
   q_config=$(remote_quote "$CONFIG")
-  q_ubuntu_version=$(remote_quote "$UBUNTU_VERSION")
-  q_alma_version=$(remote_quote "$ALMA_VERSION")
-  refresh_command="cd $q_workdir && ./scripts/refresh-libvirt-source.py --config $q_config --distro ubuntu --version $q_ubuntu_version && ./scripts/refresh-libvirt-source.py --config $q_config --distro alma --version $q_alma_version"
+  refresh_commands=()
+  if [[ "$BUILD_UBUNTU" == "true" ]]; then
+    test -n "$UBUNTU_VERSION"
+    q_ubuntu_version=$(remote_quote "$UBUNTU_VERSION")
+    refresh_commands+=("./scripts/refresh-libvirt-source.py --config $q_config --distro ubuntu --version $q_ubuntu_version")
+  fi
+  if [[ "$BUILD_ALMA" == "true" ]]; then
+    test -n "$ALMA_VERSION"
+    q_alma_version=$(remote_quote "$ALMA_VERSION")
+    refresh_commands+=("./scripts/refresh-libvirt-source.py --config $q_config --distro alma --version $q_alma_version")
+  fi
+  refresh_command="cd $q_workdir && ${refresh_commands[0]}"
+  for command in "${refresh_commands[@]:1}"; do
+    refresh_command="$refresh_command && $command"
+  done
   if [[ "$(local_host_matches "$BUILD_HOST")" == "yes" ]]; then
     bash -lc "$refresh_command"
   else
@@ -56,11 +75,30 @@ if [[ "$REFRESH_SOURCES" == "true" ]]; then
   fi
 fi
 
-./scripts/release.py build --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
-./scripts/release.py collect --config "$CONFIG" --build-id "$BUILD_ID" --execute
-./scripts/release.py test-artifacts --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
-./scripts/release.py publish-staging --config "$CONFIG" --build-id "$BUILD_ID" --execute
-./scripts/release.py test-staging --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
+if [[ "$BUILD_UBUNTU" == "true" && "$BUILD_ALMA" == "true" ]]; then
+  ./scripts/release.py build --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
+  ./scripts/release.py collect --config "$CONFIG" --build-id "$BUILD_ID" --execute
+  ./scripts/release.py test-artifacts --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
+  ./scripts/release.py publish-staging --config "$CONFIG" --build-id "$BUILD_ID" --execute
+  ./scripts/release.py test-staging --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
+else
+  if [[ "$PROMOTE_STABLE" == "true" ]]; then
+    echo "Partial candidate builds cannot be promoted to stable" >&2
+    exit 1
+  fi
+  if [[ "$BUILD_UBUNTU" == "true" ]]; then
+    ./scripts/release.py build-ubuntu --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
+    ./scripts/release.py collect-ubuntu --config "$CONFIG" --build-id "$BUILD_ID" --execute
+    ./scripts/release.py test-ubuntu-artifacts --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
+  fi
+  if [[ "$BUILD_ALMA" == "true" ]]; then
+    ./scripts/release.py build-alma --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
+    ./scripts/release.py collect-alma --config "$CONFIG" --build-id "$BUILD_ID" --execute
+    ./scripts/release.py test-alma-artifacts --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
+  fi
+  summary "Partial candidate completed without staging publish or storage migration gate."
+fi
+
 ./scripts/write-release-evidence.py --build-id "$BUILD_ID"
 
 if [[ "$PROMOTE_STABLE" == "true" ]]; then

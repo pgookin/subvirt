@@ -37,7 +37,7 @@ jobs:
       - name: Derive candidate release inputs
         if: steps.check.outputs.updates_available == 'true'
         id: release_inputs
-        run: ./scripts/lock-release-inputs.py --github-output "$GITHUB_OUTPUT"
+        run: ./scripts/lock-release-inputs.py --report upstream-report.json --github-output "$GITHUB_OUTPUT"
       - name: Create upstream refresh PR
         if: steps.check.outputs.updates_available == 'true'
         uses: peter-evans/create-pull-request@v6
@@ -56,6 +56,8 @@ jobs:
           REFRESH_SOURCES: "true"
           UBUNTU_VERSION: ${{ steps.release_inputs.outputs.ubuntu_version }}
           ALMA_VERSION: ${{ steps.release_inputs.outputs.alma_version }}
+          BUILD_UBUNTU: ${{ steps.release_inputs.outputs.build_ubuntu }}
+          BUILD_ALMA: ${{ steps.release_inputs.outputs.build_alma }}
           PROMOTE_STABLE: "false"
         run: ./scripts/run-candidate-release.sh
       - uses: actions/upload-artifact@v4

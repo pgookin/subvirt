@@ -156,18 +156,22 @@ def build_alma(ctx: Context) -> None:
     remote(host, command, ctx.execute)
 
 
-def collect_artifacts(ctx: Context) -> None:
+def collect_artifact(ctx: Context, distro: str) -> None:
     p = project(ctx)
     local = Path("artifacts") / ctx.build_id
     host = hosts(ctx)["build"]
+    src = f"{p['artifact_dir']}/{ctx.build_id}/{distro}/"
+    dst = str(local / distro) + "/"
+    run(["mkdir", "-p", dst], ctx.execute)
+    if is_local_host(host):
+        run(["rsync", "-a", src, dst], ctx.execute)
+    else:
+        run(["rsync", "-a", f"{host}:{src}", dst], ctx.execute)
+
+
+def collect_artifacts(ctx: Context) -> None:
     for distro in ["ubuntu", "alma"]:
-        src = f"{p['artifact_dir']}/{ctx.build_id}/{distro}/"
-        dst = str(local / distro) + "/"
-        run(["mkdir", "-p", dst], ctx.execute)
-        if is_local_host(host):
-            run(["rsync", "-a", src, dst], ctx.execute)
-        else:
-            run(["rsync", "-a", f"{host}:{src}", dst], ctx.execute)
+        collect_artifact(ctx, distro)
 
 
 def publish_staging(ctx: Context) -> None:
@@ -359,7 +363,22 @@ def release(ctx: Context) -> None:
 
 def parse_args(argv: Iterable[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=["checkout-build", "build", "collect", "test-artifacts", "publish-staging", "test-staging", "promote", "release"])
+    parser.add_argument("command", choices=[
+        "checkout-build",
+        "build",
+        "build-ubuntu",
+        "build-alma",
+        "collect",
+        "collect-ubuntu",
+        "collect-alma",
+        "test-artifacts",
+        "test-ubuntu-artifacts",
+        "test-alma-artifacts",
+        "publish-staging",
+        "test-staging",
+        "promote",
+        "release",
+    ])
     parser.add_argument("--config", default="release/release.json")
     parser.add_argument("--ref", default="HEAD")
     parser.add_argument("--build-id", required=True)
@@ -374,8 +393,14 @@ def main(argv: Iterable[str] = sys.argv[1:]) -> int:
     actions = {
         "checkout-build": lambda: checkout_build(ctx),
         "build": lambda: (build_ubuntu(ctx), build_alma(ctx)),
+        "build-ubuntu": lambda: build_ubuntu(ctx),
+        "build-alma": lambda: build_alma(ctx),
         "collect": lambda: collect_artifacts(ctx),
+        "collect-ubuntu": lambda: collect_artifact(ctx, "ubuntu"),
+        "collect-alma": lambda: collect_artifact(ctx, "alma"),
         "test-artifacts": lambda: test_artifacts(ctx),
+        "test-ubuntu-artifacts": lambda: install_ubuntu_artifacts(ctx),
+        "test-alma-artifacts": lambda: install_alma_artifacts(ctx),
         "publish-staging": lambda: publish_staging(ctx),
         "test-staging": lambda: test_staging(ctx),
         "promote": lambda: promote(ctx),

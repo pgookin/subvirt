@@ -299,6 +299,43 @@ def spec_add_patch(spec: Path, patch_name: str) -> None:
 
 
 
+def spec_add_truenas_storage_package(spec: Path) -> None:
+    text = spec.read_text(encoding="utf-8")
+    if "%package daemon-driver-storage-truenas\n" not in text:
+        package_stanza = """
+%package daemon-driver-storage-truenas
+Summary: Storage driver plugin for TrueNAS
+Requires: libvirt-daemon-driver-storage-core = %{version}-%{release}
+Requires: libvirt-libs = %{version}-%{release}
+Requires: truenas-libvirt-provider
+
+%description daemon-driver-storage-truenas
+The storage driver backend adding implementation of the storage APIs for
+TrueNAS-backed storage.
+"""
+        marker = "%package daemon-driver-storage\n"
+        if marker not in text:
+            raise SystemExit("could not find daemon-driver-storage package marker in libvirt.spec")
+        text = text.replace(marker, package_stanza + "\n" + marker, 1)
+    require_line = "Requires: libvirt-daemon-driver-storage-truenas = %{version}-%{release}\n"
+    if require_line not in text:
+        marker = "Requires: libvirt-daemon-driver-storage-mpath = %{version}-%{release}\n"
+        if marker not in text:
+            raise SystemExit("could not find storage aggregate dependency marker in libvirt.spec")
+        text = text.replace(marker, marker + require_line, 1)
+    if "%files daemon-driver-storage-truenas\n" not in text:
+        files_stanza = """
+%files daemon-driver-storage-truenas
+%{_libdir}/libvirt/storage-backend/libvirt_storage_backend_truenas.so
+"""
+        marker = "%files daemon-driver-storage-mpath\n"
+        if marker not in text:
+            raise SystemExit("could not find daemon-driver-storage-mpath files marker in libvirt.spec")
+        text = text.replace(marker, files_stanza + "\n" + marker, 1)
+    spec.write_text(text, encoding="utf-8")
+
+
+
 def write_git_am_patch(src: Path, dst: Path, subject: str) -> None:
     diff = src.read_text(encoding="utf-8")
     if diff.startswith("From "):
@@ -372,6 +409,7 @@ def refresh_alma(version: str) -> None:
     patch_name = "truenas-storage-backend-al10.patch"
     write_git_am_patch(PATCHES / patch_name, BUILD / patch_name, "Add TrueNAS storage backend")
     spec_add_patch(spec, patch_name)
+    spec_add_truenas_storage_package(spec)
     spec_set_truenas_release(spec, version)
     print(f"Alma source ready from {src_rpm}: {BUILD}")
 

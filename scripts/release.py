@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import shlex
+import socket
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -41,8 +42,16 @@ def run(argv: list[str], execute: bool) -> None:
         subprocess.run(argv, check=True)
 
 
+def is_local_host(host: str) -> bool:
+    local_names = {"localhost", "127.0.0.1", "::1", socket.gethostname(), socket.getfqdn()}
+    return host in local_names
+
+
 def remote(host: str, command: str, execute: bool) -> None:
-    run(["ssh", host, command], execute)
+    if is_local_host(host):
+        run(["bash", "-lc", command], execute)
+    else:
+        run(["ssh", host, command], execute)
 
 
 def rsync_to(src: str, host: str, dst: str, execute: bool, excludes: list[str] | None = None) -> None:
@@ -155,7 +164,10 @@ def collect_artifacts(ctx: Context) -> None:
         src = f"{p['artifact_dir']}/{ctx.build_id}/{distro}/"
         dst = str(local / distro) + "/"
         run(["mkdir", "-p", dst], ctx.execute)
-        run(["rsync", "-a", f"{host}:{src}", dst], ctx.execute)
+        if is_local_host(host):
+            run(["rsync", "-a", src, dst], ctx.execute)
+        else:
+            run(["rsync", "-a", f"{host}:{src}", dst], ctx.execute)
 
 
 def publish_staging(ctx: Context) -> None:
@@ -233,12 +245,16 @@ def copy_artifacts_to_test_host(ctx: Context, distro: str, target: str, pattern:
     build_host = hosts(ctx)["build"]
     stage_dir = artifact_stage_dir(ctx, distro)
     remote(target, f"install -d -m 0755 {q(stage_dir)}", ctx.execute)
-    run([
-        "scp",
-        "-3",
-        f"{build_host}:{artifact_dir(ctx, distro)}/{pattern}",
-        f"{target}:{stage_dir}/",
-    ], ctx.execute)
+    if is_local_host(build_host):
+        command = f"scp {q(artifact_dir(ctx, distro))}/{pattern} {q(f'{target}:{stage_dir}/')}"
+        run(["bash", "-lc", command], ctx.execute)
+    else:
+        run([
+            "scp",
+            "-3",
+            f"{build_host}:{artifact_dir(ctx, distro)}/{pattern}",
+            f"{target}:{stage_dir}/",
+        ], ctx.execute)
 
 
 def virt_manager_validation_command() -> str:

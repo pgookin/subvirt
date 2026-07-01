@@ -34,6 +34,10 @@ for key in sys.argv[2].split("."):
 print(cur)' "$CONFIG" "$1"
 }
 
+local_host_matches() {
+  python3 -c 'import socket, sys; host=sys.argv[1]; print("yes" if host in {"localhost", "127.0.0.1", "::1", socket.gethostname(), socket.getfqdn()} else "no")' "$1"
+}
+
 if [[ "$REFRESH_SOURCES" == "true" ]]; then
   test -n "$UBUNTU_VERSION"
   test -n "$ALMA_VERSION"
@@ -44,7 +48,12 @@ if [[ "$REFRESH_SOURCES" == "true" ]]; then
   q_config=$(remote_quote "$CONFIG")
   q_ubuntu_version=$(remote_quote "$UBUNTU_VERSION")
   q_alma_version=$(remote_quote "$ALMA_VERSION")
-  ssh "$BUILD_HOST" "cd $q_workdir && ./scripts/refresh-libvirt-source.py --config $q_config --distro ubuntu --version $q_ubuntu_version && ./scripts/refresh-libvirt-source.py --config $q_config --distro alma --version $q_alma_version"
+  refresh_command="cd $q_workdir && ./scripts/refresh-libvirt-source.py --config $q_config --distro ubuntu --version $q_ubuntu_version && ./scripts/refresh-libvirt-source.py --config $q_config --distro alma --version $q_alma_version"
+  if [[ "$(local_host_matches "$BUILD_HOST")" == "yes" ]]; then
+    bash -lc "$refresh_command"
+  else
+    ssh "$BUILD_HOST" "$refresh_command"
+  fi
 fi
 
 ./scripts/release.py build --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute

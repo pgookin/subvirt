@@ -1,10 +1,10 @@
 {
-  "ubuntu": {
-    "package": "libvirt0",
-    "version": "10.0.0-2ubuntu8.13"
-  },
   "alma": {
     "package": "libvirt",
     "version": "11.10.0-12.el10_2.alma.1"
+  },
+  "ubuntu": {
+    "package": "libvirt0",
+    "version": "10.0.0-2ubuntu8.14"
   }
 }

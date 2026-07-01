@@ -299,6 +299,22 @@ def spec_add_patch(spec: Path, patch_name: str) -> None:
 
 
 
+def write_git_am_patch(src: Path, dst: Path, subject: str) -> None:
+    diff = src.read_text(encoding="utf-8")
+    if diff.startswith("From "):
+        dst.write_text(diff, encoding="utf-8")
+        return
+    header = f"""From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: subvirt automation <release@subvirt.local>
+Date: Tue, 30 Jun 2026 00:00:00 -0400
+Subject: [PATCH] {subject}
+
+---
+"""
+    dst.write_text(header + diff, encoding="utf-8")
+
+
+
 def refresh_alma_in_container(version: str) -> None:
     runtime = os.environ.get("SUBVIRT_CONTAINER_RUNTIME", "podman")
     image = os.environ.get("SUBVIRT_ALMA_BUILD_IMAGE", "localhost/subvirt-almalinux-10-build:latest")
@@ -354,7 +370,7 @@ def refresh_alma(version: str) -> None:
     if not spec.exists():
         raise SystemExit("source RPM did not contain libvirt.spec")
     patch_name = "truenas-storage-backend-al10.patch"
-    shutil.copy2(PATCHES / patch_name, BUILD / patch_name)
+    write_git_am_patch(PATCHES / patch_name, BUILD / patch_name, "Add TrueNAS storage backend")
     spec_add_patch(spec, patch_name)
     spec_set_truenas_release(spec, version)
     print(f"Alma source ready from {src_rpm}: {BUILD}")

@@ -1,7 +1,7 @@
 {
   "project": {
     "name": "subvirt",
-    "repo_url": "git@github.com:pgookin/subvirt.git",
+    "repo_url": "https://github.com/pgookin/subvirt.git",
     "branch": "main",
     "workdir": "/srv/subvirt/build",
     "artifact_dir": "/srv/subvirt/artifacts",

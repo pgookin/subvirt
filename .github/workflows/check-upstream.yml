@@ -5,6 +5,13 @@ on:
     - cron: "17 */8 * * *"
   workflow_dispatch:
 
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  SUBVIRT_RELEASE_CONFIG: ${{ vars.SUBVIRT_RELEASE_CONFIG || '/srv/subvirt/release/release.json' }}
+
 jobs:
   check:
     runs-on: [self-hosted, subvirt-build]
@@ -15,7 +22,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          ./scripts/check-upstream.py --config release/release.example.json --lock release/upstream-lock.json --json-output upstream-report.json
+          ./scripts/check-upstream.py --config "$SUBVIRT_RELEASE_CONFIG" --lock release/upstream-lock.json --json-output upstream-report.json
           rc=$?
           set -e
           cat upstream-report.json >> "$GITHUB_STEP_SUMMARY"
@@ -24,7 +31,21 @@ jobs:
             exit 0
           fi
           exit "$rc"
+      - name: Update upstream lock
+        if: steps.check.outputs.updates_available == 'true'
+        run: ./scripts/update-upstream-lock.py --report upstream-report.json --lock release/upstream-lock.json
+      - name: Create upstream refresh PR
+        if: steps.check.outputs.updates_available == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: automation/upstream-libvirt-refresh
+          delete-branch: true
+          commit-message: Update tracked upstream libvirt versions
+          title: Update tracked upstream libvirt versions
+          body-path: upstream-report.json
+          add-paths: release/upstream-lock.json
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: upstream-report
           path: upstream-report.json

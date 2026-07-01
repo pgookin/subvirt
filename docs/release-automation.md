@@ -13,12 +13,12 @@ The active release flow uses one build VM, two distro test VMs, and one reposito
 
 `release/release.example.json` is the template for hostnames, paths, repo names, and test pool names. Copy it to `release/release.json` and edit local values. Do not commit secrets or private keys.
 
-The public workflow uses `project.source_mode = "git"` with `project.repo_url = "git@github.com:pgookin/subvirt.git"`. For pre-publication or emergency lab-only testing, `source_mode = "rsync"` can still be used in the ignored local `release/release.json`.
+The public workflow uses `project.source_mode = "git"` with `project.repo_url = "https://github.com/pgookin/subvirt.git"` so build and test hosts can clone without GitHub SSH keys. For pre-publication or emergency lab-only testing, `source_mode = "rsync"` can still be used in the ignored local `release/release.json`.
 
 
 ## Public GitHub Repository
 
-The canonical public source repository is `git@github.com:pgookin/subvirt.git` (`https://github.com/pgookin/subvirt`). Commit code, scripts, docs, examples, package metadata, and patch overlays only. Do not commit generated libvirt source trees, downloaded source packages, binary packages, live release configs, API keys, SSH keys, or GPG private keys.
+The canonical public source repository is `https://github.com/pgookin/subvirt`. Developer pushes can use `git@github.com:pgookin/subvirt.git`, but automation clones over HTTPS. Commit code, scripts, docs, examples, package metadata, and patch overlays only. Do not commit generated libvirt source trees, downloaded source packages, binary packages, live release configs, API keys, SSH keys, or GPG private keys.
 
 The durable source inputs are:
 

@@ -25,6 +25,9 @@ on:
         required: false
         default: "true"
 
+env:
+  SUBVIRT_RELEASE_CONFIG: ${{ vars.SUBVIRT_RELEASE_CONFIG || '/srv/subvirt/release/release.json' }}
+
 jobs:
   release:
     runs-on: [self-hosted, subvirt-build]
@@ -42,15 +45,15 @@ jobs:
           ./scripts/refresh-libvirt-source.py --distro ubuntu --version "${{ inputs.ubuntu_version }}"
           ./scripts/refresh-libvirt-source.py --distro alma --version "${{ inputs.alma_version }}"
       - name: Build packages
-        run: ./scripts/release.py build --config release/release.json --ref "${{ inputs.ref }}" --build-id "${{ inputs.build_id }}" --execute
+        run: ./scripts/release.py build --config "$SUBVIRT_RELEASE_CONFIG" --ref "${{ inputs.ref }}" --build-id "${{ inputs.build_id }}" --execute
       - name: Collect artifacts
-        run: ./scripts/release.py collect --config release/release.json --build-id "${{ inputs.build_id }}" --execute
+        run: ./scripts/release.py collect --config "$SUBVIRT_RELEASE_CONFIG" --build-id "${{ inputs.build_id }}" --execute
       - name: Test artifacts directly
-        run: ./scripts/release.py test-artifacts --config release/release.json --ref "${{ inputs.ref }}" --build-id "${{ inputs.build_id }}" --execute
+        run: ./scripts/release.py test-artifacts --config "$SUBVIRT_RELEASE_CONFIG" --ref "${{ inputs.ref }}" --build-id "${{ inputs.build_id }}" --execute
       - name: Publish staging
-        run: ./scripts/release.py publish-staging --config release/release.json --build-id "${{ inputs.build_id }}" --execute
+        run: ./scripts/release.py publish-staging --config "$SUBVIRT_RELEASE_CONFIG" --build-id "${{ inputs.build_id }}" --execute
       - name: Test staging
-        run: ./scripts/release.py test-staging --config release/release.json --ref "${{ inputs.ref }}" --build-id "${{ inputs.build_id }}" --execute
+        run: ./scripts/release.py test-staging --config "$SUBVIRT_RELEASE_CONFIG" --ref "${{ inputs.ref }}" --build-id "${{ inputs.build_id }}" --execute
       - name: Write release evidence
         run: ./scripts/write-release-evidence.py --build-id "${{ inputs.build_id }}"
       - name: Codex promotion gate
@@ -58,7 +61,7 @@ jobs:
         run: ./scripts/codex-release-gate.sh "${{ inputs.build_id }}"
       - name: Promote stable
         if: ${{ inputs.promote_stable == 'true' }}
-        run: ./scripts/release.py promote --config release/release.json --build-id "${{ inputs.build_id }}" --execute
+        run: ./scripts/release.py promote --config "$SUBVIRT_RELEASE_CONFIG" --build-id "${{ inputs.build_id }}" --execute
       - uses: actions/upload-artifact@v4
         if: always()
         with:

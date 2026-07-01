@@ -13,6 +13,7 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y \
   podman \
   python3 \
   rsync \
+  sudo \
   uidmap
 
 echo "Build host bootstrap installed Podman and baseline tools."

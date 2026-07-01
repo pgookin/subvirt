@@ -94,8 +94,7 @@ def remote_checkout(ctx: Context, host: str) -> None:
         raise ValueError(f"unsupported project.source_mode: {source_mode}")
     repo_url = p["repo_url"]
     command = " && ".join([
-        f"install -d -m 0755 {q(workdir)}",
-        f"test -d {q(workdir)}/.git || git clone {q(repo_url)} {q(workdir)}",
+        f"if test -d {q(workdir)}/.git; then true; else rm -rf {q(workdir)} && git clone {q(repo_url)} {q(workdir)}; fi",
         f"cd {q(workdir)}",
         "git fetch --tags --prune origin",
         f"git checkout {q(ctx.ref)}",

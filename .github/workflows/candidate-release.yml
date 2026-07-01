@@ -36,32 +36,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref }}
-      - name: Refresh generated source trees
-        if: ${{ inputs.refresh_sources == 'true' }}
-        shell: bash
-        run: |
-          test -n "${{ inputs.ubuntu_version }}"
-          test -n "${{ inputs.alma_version }}"
-          ./scripts/refresh-libvirt-source.py --distro ubuntu --version "${{ inputs.ubuntu_version }}"
-          ./scripts/refresh-libvirt-source.py --distro alma --version "${{ inputs.alma_version }}"
-      - name: Build packages
-        run: ./scripts/release.py build --config "$SUBVIRT_RELEASE_CONFIG" --ref "${{ inputs.ref }}" --build-id "${{ inputs.build_id }}" --execute
-      - name: Collect artifacts
-        run: ./scripts/release.py collect --config "$SUBVIRT_RELEASE_CONFIG" --build-id "${{ inputs.build_id }}" --execute
-      - name: Test artifacts directly
-        run: ./scripts/release.py test-artifacts --config "$SUBVIRT_RELEASE_CONFIG" --ref "${{ inputs.ref }}" --build-id "${{ inputs.build_id }}" --execute
-      - name: Publish staging
-        run: ./scripts/release.py publish-staging --config "$SUBVIRT_RELEASE_CONFIG" --build-id "${{ inputs.build_id }}" --execute
-      - name: Test staging
-        run: ./scripts/release.py test-staging --config "$SUBVIRT_RELEASE_CONFIG" --ref "${{ inputs.ref }}" --build-id "${{ inputs.build_id }}" --execute
-      - name: Write release evidence
-        run: ./scripts/write-release-evidence.py --build-id "${{ inputs.build_id }}"
-      - name: Codex promotion gate
-        if: ${{ inputs.promote_stable == 'true' }}
-        run: ./scripts/codex-release-gate.sh "${{ inputs.build_id }}"
-      - name: Promote stable
-        if: ${{ inputs.promote_stable == 'true' }}
-        run: ./scripts/release.py promote --config "$SUBVIRT_RELEASE_CONFIG" --build-id "${{ inputs.build_id }}" --execute
+      - name: Run candidate release
+        env:
+          BUILD_ID: ${{ inputs.build_id }}
+          REF: ${{ inputs.ref }}
+          REFRESH_SOURCES: ${{ inputs.refresh_sources }}
+          UBUNTU_VERSION: ${{ inputs.ubuntu_version }}
+          ALMA_VERSION: ${{ inputs.alma_version }}
+          PROMOTE_STABLE: ${{ inputs.promote_stable }}
+        run: ./scripts/run-candidate-release.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:

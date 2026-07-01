@@ -35,6 +35,8 @@ Generated paths such as `build/`, `sources/`, `dist/`, `provider-build/`, `work-
 
 `scripts/refresh-libvirt-source.py` creates generated libvirt build inputs from distro source packages and applies the tracked Subvirt overlays. It writes only ignored workspace paths. If patches do not apply cleanly, the candidate stops for Codex or human rebase work instead of guessing.
 
+When the upstream check workflow opens a PR that changes `release/upstream-lock.json`, `upstream-candidate.yml` automatically derives the target Ubuntu and Alma versions, refreshes generated sources, builds packages, runs direct artifact tests, publishes staging, and runs staging tests. It intentionally does not promote to stable; stable promotion remains a separate Codex-gated workflow until a full upstream refresh succeeds reliably.
+
 ## Commands
 
 Dry-run a full release from a tag or commit:

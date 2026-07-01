@@ -145,7 +145,7 @@ def write_release(apt_root: Path, suite: str, components: list[str]) -> None:
     run(["gpg", "--batch", "--yes", "--detach-sign", "--armor", "-o", str(dists / "Release.gpg"), str(release)])
 
 
-def publish_yum(incoming: Path, web_root: Path, distro_path: str, channel: str) -> None:
+def publish_yum(incoming: Path, web_root: Path, distro_path: str, channel: str, gpg_name: str) -> None:
     rpms = [
         rpm for rpm in sorted(incoming.glob("*.rpm"))
         if not rpm.name.endswith(".src.rpm") and "debuginfo" not in rpm.name and "debugsource" not in rpm.name
@@ -157,7 +157,7 @@ def publish_yum(incoming: Path, web_root: Path, distro_path: str, channel: str) 
     for rpm in rpms:
         dst = target / rpm.name
         shutil.copy2(rpm, dst)
-        run(["rpmsign", "--define", "_gpg_name Subvirt Repository <repo@subvirt.local>", "--addsign", str(dst)])
+        run(["rpmsign", "--define", f"_gpg_name {gpg_name}", "--addsign", str(dst)])
     run(["createrepo_c", "--update", str(target)])
     repomd = target / "repodata" / "repomd.xml"
     run(["gpg", "--batch", "--yes", "--detach-sign", "--armor", str(repomd)])
@@ -177,10 +177,11 @@ def main() -> int:
     parser.add_argument("--suite", default="noble")
     parser.add_argument("--component", choices=["staging", "stable"], required=True)
     parser.add_argument("--yum-distro-path", default="almalinux/10")
+    parser.add_argument("--gpg-name", default="Subvirt Repository <repo@subvirt.local>")
     args = parser.parse_args()
 
     publish_apt(args.incoming / "ubuntu", args.web_root, args.suite, args.component)
-    publish_yum(args.incoming / "alma", args.web_root, args.yum_distro_path, args.component)
+    publish_yum(args.incoming / "alma", args.web_root, args.yum_distro_path, args.component, args.gpg_name)
     export_key(args.web_root)
     if shutil.which("restorecon"):
         run(["restorecon", "-RF", str(args.web_root)])

@@ -237,8 +237,40 @@ def run_storage_gate(ctx: Context) -> None:
         remote(ubuntu, migration, ctx.execute)
 
 
+
+
+def lab_config(ctx: Context) -> dict:
+    return ctx.config.get("lab", {})
+
+
+def test_ephemeral_lab(ctx: Context) -> None:
+    lab = lab_config(ctx)
+    host = lab.get("host", hosts(ctx)["build"])
+    p = project(ctx)
+    workdir = p["workdir"]
+    config_path = lab.get("config", "/srv/subvirt/release/lab.json")
+    artifacts = f"{p['artifact_dir']}/{ctx.build_id}"
+    remote_checkout(ctx, host)
+    command = " ; ".join([
+        "set -e",
+        f"cd {q(workdir)}",
+        "set +e",
+        f"./scripts/lab.py create --config {q(config_path)} --build-id {q(ctx.build_id)} --execute && "
+        f"./scripts/lab.py publish-repo --config {q(config_path)} --build-id {q(ctx.build_id)} --artifacts {q(artifacts)} --execute && "
+        f"./scripts/lab.py test-repo --config {q(config_path)} --build-id {q(ctx.build_id)} --execute",
+        "rc=$?",
+        f"if test $rc -eq 0; then ./scripts/lab.py destroy --config {q(config_path)} --build-id {q(ctx.build_id)} --execute; "
+        f"else echo 'Ephemeral lab preserved for failed build {ctx.build_id}. Cleanup with: ./scripts/lab.py destroy --config {q(config_path)} --build-id {q(ctx.build_id)} --execute' >&2; fi",
+        "exit $rc",
+    ])
+    remote(host, command, ctx.execute)
+
+
 def test_staging(ctx: Context) -> None:
-    run_storage_gate(ctx)
+    if lab_config(ctx).get("enabled"):
+        test_ephemeral_lab(ctx)
+    else:
+        run_storage_gate(ctx)
 
 
 def artifact_stage_dir(ctx: Context, distro: str) -> str:
@@ -376,6 +408,7 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
         "test-alma-artifacts",
         "publish-staging",
         "test-staging",
+        "test-lab",
         "promote",
         "release",
     ])
@@ -403,6 +436,7 @@ def main(argv: Iterable[str] = sys.argv[1:]) -> int:
         "test-alma-artifacts": lambda: install_alma_artifacts(ctx),
         "publish-staging": lambda: publish_staging(ctx),
         "test-staging": lambda: test_staging(ctx),
+        "test-lab": lambda: test_ephemeral_lab(ctx),
         "promote": lambda: promote(ctx),
         "release": lambda: release(ctx),
     }

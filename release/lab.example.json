@@ -1,0 +1,100 @@
+{
+  "lab": {
+    "name_prefix": "subvirt-ci",
+    "workdir": "/srv/subvirt/lab",
+    "artifact_root": "/srv/subvirt/artifacts",
+    "release_template": "release/release.example.json",
+    "http_listen": "192.168.150.1:8080",
+    "dns": [
+      "1.1.1.1",
+      "8.8.8.8"
+    ],
+    "ssh_authorized_key_files": [
+      "~/.ssh/virt.pub",
+      "~/.ssh/id_rsa.pub"
+    ],
+    "ssh_authorized_keys": []
+  },
+  "networks": {
+    "management": {
+      "name": "subvirt-lab-mgmt",
+      "mode": "nat",
+      "bridge": "virbr-subvirt-mgmt",
+      "gateway": "192.168.150.1",
+      "prefix": 24
+    },
+    "storage": {
+      "name": "subvirt-lab-storage",
+      "mode": "isolated",
+      "bridge": "virbr-subvirt-storage",
+      "gateway": "192.168.151.1",
+      "prefix": 24
+    }
+  },
+  "repo": {
+    "apt_suite": "noble",
+    "component": "staging",
+    "yum_distro_path": "almalinux/10",
+    "gpg_name": "Subvirt Lab Repository <lab@subvirt.local>"
+  },
+  "vms": {
+    "ubuntu": {
+      "name": "u24",
+      "image_url": "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img",
+      "image_sha256": "",
+      "os_variant": "ubuntu24.04",
+      "management_ip": "192.168.150.11",
+      "storage_ip": "192.168.151.11",
+      "disk_size": "40G",
+      "memory_mib": 4096,
+      "vcpus": 4
+    },
+    "alma": {
+      "name": "al10",
+      "image_url": "https://repo.almalinux.org/almalinux/10/cloud/x86_64/images/AlmaLinux-10-GenericCloud-latest.x86_64.qcow2",
+      "image_sha256": "",
+      "os_variant": "generic",
+      "management_ip": "192.168.150.12",
+      "storage_ip": "192.168.151.12",
+      "disk_size": "40G",
+      "memory_mib": 4096,
+      "vcpus": 4
+    },
+    "truenas": {
+      "name": "truenas",
+      "install_mode": "iso",
+      "installer_automation": "external",
+      "iso_url": "https://download.sys.truenas.net/TrueNAS-SCALE-Goldeye/25.10.4/TrueNAS-SCALE-25.10.4.iso",
+      "iso_sha256": "",
+      "golden_image": "",
+      "os_variant": "generic",
+      "management_ip": "192.168.150.10",
+      "storage_ip": "192.168.151.10",
+      "boot_disk_size": "32G",
+      "data_disks": [
+        "32G",
+        "32G",
+        "32G",
+        "32G"
+      ],
+      "memory_mib": 8192,
+      "vcpus": 4
+    }
+  },
+  "truenas": {
+    "management_ip": "192.168.150.10",
+    "storage_ip": "192.168.151.10",
+    "username": "libvirt_user",
+    "dataset": "libvirt",
+    "post_install_script": "",
+    "api_key": ""
+  },
+  "tests": {
+    "iscsi_truenas_pool": "iscsi_pool",
+    "nvmeof_truenas_pool": "nvmeof_pool",
+    "iscsi_pool_name": "truenas-iscsi",
+    "nvmeof_pool_name": "truenas-nvmeof",
+    "target_path": "/dev/disk/by-id",
+    "run_migration": false
+  }
+}

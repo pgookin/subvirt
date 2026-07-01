@@ -42,5 +42,10 @@
     "ubuntu_component": "main",
     "ubuntu_arch": "amd64",
     "alma_appstream_path": "10/AppStream/x86_64_v2/os"
+  },
+  "lab": {
+    "enabled": false,
+    "host": "subvirt-build",
+    "config": "/srv/subvirt/release/lab.json"
   }
 }

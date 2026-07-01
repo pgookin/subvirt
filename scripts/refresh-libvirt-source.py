@@ -245,6 +245,21 @@ def spec_set_truenas_release(spec: Path, version: str) -> None:
 
 
 
+def spec_add_patch(spec: Path, patch_name: str) -> None:
+    text = spec.read_text(encoding="utf-8")
+    if re.search(rf"^Patch\d+:\s+{re.escape(patch_name)}$", text, flags=re.M):
+        return
+    matches = list(re.finditer(r"^Patch(\d+):\s+.*$", text, flags=re.M))
+    if not matches:
+        raise SystemExit("libvirt.spec did not contain any Patch entries")
+    last = matches[-1]
+    patch_num = int(last.group(1)) + 1
+    insertion = f"Patch{patch_num}: {patch_name}\n"
+    text = text[:last.end() + 1] + insertion + text[last.end() + 1:]
+    spec.write_text(text, encoding="utf-8")
+
+
+
 def refresh_alma_in_container(version: str) -> None:
     runtime = os.environ.get("SUBVIRT_CONTAINER_RUNTIME", "podman")
     image = os.environ.get("SUBVIRT_ALMA_BUILD_IMAGE", "localhost/subvirt-almalinux-10-build:latest")
@@ -299,7 +314,9 @@ def refresh_alma(version: str) -> None:
     spec = BUILD / "libvirt.spec"
     if not spec.exists():
         raise SystemExit("source RPM did not contain libvirt.spec")
-    run(["patch", "-p1", "-i", str(PATCHES / "truenas-storage-backend-al10.patch")], cwd=BUILD)
+    patch_name = "truenas-storage-backend-al10.patch"
+    shutil.copy2(PATCHES / patch_name, BUILD / patch_name)
+    spec_add_patch(spec, patch_name)
     spec_set_truenas_release(spec, version)
     print(f"Alma source ready from {src_rpm}: {BUILD}")
 

@@ -14,6 +14,8 @@ The lab creates two libvirt networks. Bridge names must stay within Linux's 15-c
 - `subvirt-lab-mgmt`: NAT network, default `192.168.150.0/24`, also serves the per-run apt/dnf repo from `192.168.150.1:8080`.
 - `subvirt-lab-storage`: isolated network, default `192.168.151.0/24`, used by iSCSI and NVMe-oF traffic.
 
+The lab nginx service listens on `lab.http_listen`; use `0.0.0.0:8080` when bootstrapping before the lab network exists. Guests consume the repo through `lab.http_url`, normally `192.168.150.1:8080`.
+
 ## Configuration
 
 Copy `release/lab.example.json` to an untracked local config such as `/srv/subvirt/release/lab.json` on `subvirt-build` and fill in local values:

@@ -505,6 +505,9 @@ def ssh(host: str, command: str, lab: Lab) -> str:
 
 
 def repo_url(lab: Lab) -> str:
+    url = lab.config["lab"].get("http_url")
+    if url:
+        return url if str(url).startswith(("http://", "https://")) else f"http://{url}"
     listen = lab.config["lab"].get("http_listen", "192.168.150.1:8080")
     return f"http://{listen}"
 

@@ -4,7 +4,8 @@
     "workdir": "/srv/subvirt/lab",
     "artifact_root": "/srv/subvirt/artifacts",
     "release_template": "release/release.example.json",
-    "http_listen": "192.168.150.1:8080",
+    "http_listen": "0.0.0.0:8080",
+    "http_url": "192.168.150.1:8080",
     "dns": [
       "1.1.1.1",
       "8.8.8.8"

@@ -66,10 +66,12 @@ def run(argv: list[str], execute: bool = True, env: dict[str, str] | None = None
     print("+ " + " ".join(q(part) for part in argv), flush=True)
     if not execute:
         return ""
-    result = subprocess.run(argv, check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+    result = subprocess.run(argv, check=False, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             env=env, input=input_text)
     if result.stdout:
         print(result.stdout, end="")
+    if result.returncode:
+        raise subprocess.CalledProcessError(result.returncode, argv, output=result.stdout)
     return result.stdout
 
 
@@ -135,8 +137,11 @@ def download(url: str, dst: Path, sha256: str | None, execute: bool) -> None:
     print(f"+ download {url} -> {dst}")
     if not execute:
         return
-    with urllib.request.urlopen(url, timeout=120) as response:
-        dst.write_bytes(response.read())
+    tmp = dst.with_suffix(dst.suffix + ".tmp")
+    tmp.unlink(missing_ok=True)
+    with urllib.request.urlopen(url, timeout=120) as response, tmp.open("wb") as out:
+        shutil.copyfileobj(response, out, length=1024 * 1024)
+    tmp.replace(dst)
     if sha256:
         import hashlib
         actual = hashlib.sha256(dst.read_bytes()).hexdigest()
@@ -150,6 +155,8 @@ def ensure_network(lab: Lab, key: str) -> None:
     name = net["name"]
     mode = net["mode"]
     bridge = net["bridge"]
+    if len(bridge) > 15:
+        raise SystemExit(f"network {name!r} bridge {bridge!r} is too long; Linux interface names must be 15 characters or fewer")
     ip = net["gateway"]
     prefix = net["prefix"]
     if mode == "nat":
@@ -169,9 +176,16 @@ def ensure_network(lab: Lab, key: str) -> None:
     if lab.execute:
         xml_path.write_text(xml, encoding="utf-8")
     existing = virsh("net-list", "--all", lab=lab)
+    active = False
+    for line in existing.splitlines():
+        parts = line.split()
+        if parts and parts[0] == name:
+            active = len(parts) > 1 and parts[1] == "active"
+            break
     if name not in existing:
         virsh("net-define", str(xml_path), lab=lab)
-    virsh("net-start", name, lab=lab)
+    if not active:
+        virsh("net-start", name, lab=lab)
     virsh("net-autostart", name, lab=lab)
 
 
@@ -197,6 +211,26 @@ def ssh_keys(config: dict[str, Any]) -> list[str]:
     if not keys:
         raise SystemExit("no SSH public key configured; set lab.ssh_authorized_keys or lab.ssh_authorized_key_files")
     return keys
+
+
+def ssh_identity_args(config: dict[str, Any]) -> list[str]:
+    identities = list(config["lab"].get("ssh_identity_files", []))
+    for item in config["lab"].get("ssh_authorized_key_files", []):
+        if item.endswith(".pub"):
+            identities.append(item[:-4])
+    args: list[str] = []
+    seen: set[str] = set()
+    for item in identities:
+        expanded = str(Path(item).expanduser())
+        if expanded in seen or not Path(expanded).exists():
+            continue
+        seen.add(expanded)
+        args.extend(["-i", expanded])
+    return args
+
+
+def ssh_base_args(lab: Lab) -> list[str]:
+    return ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", *ssh_identity_args(lab.config)]
 
 
 def write_cloud_init(lab: Lab, name: str, distro: str, mgmt_mac: str, storage_mac: str, mgmt_ip: str, storage_ip: str) -> Path:
@@ -292,6 +326,8 @@ def ensure_base_image(lab: Lab, vm_key: str) -> Path:
 def create_cloud_vm(lab: Lab, vm_key: str, offset: int) -> None:
     vm = lab.config["vms"][vm_key]
     name = f"{lab.config['lab']['name_prefix']}-{lab.build_id}-{vm['name']}"
+    if name in virsh("list", "--all", lab=lab):
+        return
     base = ensure_base_image(lab, vm_key)
     disk = image_path(lab, vm_key)
     if not disk.exists() or not lab.execute:
@@ -299,8 +335,6 @@ def create_cloud_vm(lab: Lab, vm_key: str, offset: int) -> None:
     mgmt_mac = mac_for(lab.build_id, offset)
     storage_mac = mac_for(lab.build_id, offset + 100)
     seed = write_cloud_init(lab, name, vm_key, mgmt_mac, storage_mac, vm["management_ip"], vm["storage_ip"])
-    if name in virsh("list", "--all", lab=lab):
-        return
     run([
         "virt-install", "--connect", "qemu:///system", "--name", name,
         "--memory", str(vm["memory_mib"]), "--vcpus", str(vm["vcpus"]),
@@ -372,11 +406,16 @@ def create_truenas_vm(lab: Lab) -> None:
         print(message)
 
 
-def create_lab(lab: Lab) -> None:
+def create_linux_lab(lab: Lab) -> None:
     ensure_dirs(lab)
     ensure_networks(lab)
     create_cloud_vm(lab, "ubuntu", 10)
     create_cloud_vm(lab, "alma", 20)
+    write_run_release_config(lab)
+
+
+def create_lab(lab: Lab) -> None:
+    create_linux_lab(lab)
     create_truenas_vm(lab)
     write_run_release_config(lab)
 
@@ -388,7 +427,13 @@ def ensure_lab_gpg(lab: Lab) -> dict[str, str]:
         lab.gpg_home.mkdir(parents=True, exist_ok=True)
         os.chmod(lab.gpg_home, 0o700)
     gpg_name = lab.config["repo"].get("gpg_name", "Subvirt Lab Repository <lab@subvirt.local>")
-    existing = run(["gpg", "--batch", "--list-secret-keys", gpg_name], lab.execute, env=env)
+    if lab.execute:
+        result = subprocess.run(["gpg", "--batch", "--list-secret-keys", gpg_name], text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+        existing = result.stdout
+        if existing:
+            print(existing, end="")
+    else:
+        existing = run(["gpg", "--batch", "--list-secret-keys", gpg_name], False, env=env)
     if lab.execute and gpg_name not in existing:
         batch = f"""Key-Type: RSA
 Key-Length: 3072
@@ -402,8 +447,32 @@ Expire-Date: 0
     return env
 
 
+def published_marker(lab: Lab) -> Path:
+    return lab.run_dir / "published-distros.json"
+
+
+def artifact_distros(path: Path) -> list[str]:
+    distros = []
+    if any((path / "ubuntu").glob("*.deb")):
+        distros.append("ubuntu")
+    if any((path / "alma").glob("*.rpm")):
+        distros.append("alma")
+    return distros
+
+
+def published_distros(lab: Lab) -> list[str]:
+    marker = published_marker(lab)
+    if marker.exists():
+        return json.loads(marker.read_text(encoding="utf-8"))["distros"]
+    return ["ubuntu", "alma"]
+
+
 def publish_repo(lab: Lab, artifacts: Path) -> None:
     ensure_dirs(lab)
+    write_run_release_config(lab)
+    distros = artifact_distros(artifacts)
+    if not distros:
+        raise SystemExit(f"no publishable package artifacts found in {artifacts}")
     incoming = lab.run_dir / "incoming"
     if lab.execute:
         if incoming.exists():
@@ -425,12 +494,14 @@ def publish_repo(lab: Lab, artifacts: Path) -> None:
     if lab.execute:
         current.unlink(missing_ok=True)
         current.symlink_to(lab.web_root)
+        published_marker(lab).write_text(json.dumps({"distros": distros}, indent=2) + "\n", encoding="utf-8")
     else:
         print(f"+ ln -sfn {lab.web_root} {current}")
+        print(f"+ write {published_marker(lab)} with distros={distros}")
 
 
 def ssh(host: str, command: str, lab: Lab) -> str:
-    return run(["ssh", "-o", "StrictHostKeyChecking=accept-new", host, command], lab.execute)
+    return run([*ssh_base_args(lab), host, command], lab.execute)
 
 
 def repo_url(lab: Lab) -> str:
@@ -438,7 +509,25 @@ def repo_url(lab: Lab) -> str:
     return f"http://{listen}"
 
 
-def configure_linux_repos(lab: Lab) -> None:
+def wait_for_ssh(lab: Lab, host: str, label: str, attempts: int = 60) -> None:
+    target = f"root@{host}"
+    for attempt in range(1, attempts + 1):
+        try:
+            run([*ssh_base_args(lab), "-o", "ConnectTimeout=5", target, "true"], lab.execute)
+            return
+        except subprocess.CalledProcessError:
+            if attempt == attempts:
+                raise SystemExit(f"SSH timeout waiting for {label} at {host}")
+            time.sleep(5)
+
+
+def wait_for_linux_vms(lab: Lab, distros: Iterable[str]) -> None:
+    for distro in distros:
+        wait_for_ssh(lab, lab.config["vms"][distro]["management_ip"], distro)
+
+
+def configure_linux_repos(lab: Lab, distros: Iterable[str] | None = None) -> None:
+    distros = list(distros or published_distros(lab))
     ubuntu = lab.config["vms"]["ubuntu"]["management_ip"]
     alma = lab.config["vms"]["alma"]["management_ip"]
     url = repo_url(lab)
@@ -457,9 +546,15 @@ Components: {component}
 Architectures: amd64
 Signed-By: /usr/share/keyrings/subvirt.gpg
 EOF
+apt-get clean
 apt-get update
+DEBIAN_FRONTEND=noninteractive apt-get --fix-broken install -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold
 DEBIAN_FRONTEND=noninteractive apt-get full-upgrade -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold
 DEBIAN_FRONTEND=noninteractive apt-get install -y truenas-libvirt-provider libvirt-daemon-system libvirt-daemon-driver-qemu libvirt-daemon-driver-storage-truenas virt-manager virtinst open-iscsi nvme-cli
+if ! modprobe nvme-tcp 2>/dev/null; then
+  DEBIAN_FRONTEND=noninteractive apt-get install -y "linux-modules-extra-$(uname -r)"
+  modprobe nvme-tcp
+fi
 """
     alma_cmd = f"""
 set -euo pipefail
@@ -473,18 +568,21 @@ gpgcheck=1
 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-subvirt
 EOF
 dnf upgrade -y
-dnf install -y truenas-libvirt-provider libvirt-daemon-kvm libvirt-daemon-driver-storage-truenas virt-manager virt-manager-common virt-install iscsi-initiator-utils nvme-cli
+dnf install -y truenas-libvirt-provider libvirt-daemon-kvm libvirt-daemon-driver-storage-truenas virt-manager virt-manager-common virt-install iscsi-initiator-utils nvme-cli kmod
+modprobe nvme-tcp
 """
-    ssh(f"root@{ubuntu}", ubuntu_cmd, lab)
-    ssh(f"root@{alma}", alma_cmd, lab)
+    if "ubuntu" in distros:
+        ssh(f"root@{ubuntu}", ubuntu_cmd, lab)
+    if "alma" in distros:
+        ssh(f"root@{alma}", alma_cmd, lab)
 
 
-def configure_provider_configs(lab: Lab) -> None:
+def configure_provider_configs(lab: Lab, distros: Iterable[str] | None = None) -> None:
     api_key = lab.config.get("truenas", {}).get("api_key")
     if not api_key:
         raise SystemExit("truenas.api_key is required after TrueNAS install/configuration; run configure-truenas or set it in local lab config")
+    distros = list(distros or published_distros(lab))
     t = lab.config["truenas"]
-    pools = lab.config["tests"]["pools"]
     config = {
         "truenas": {
             "url": f"wss://{t['management_ip']}/api/current",
@@ -496,7 +594,7 @@ def configure_provider_configs(lab: Lab) -> None:
         "namespace": {"dataset": t.get("dataset", "libvirt")},
     }
     payload = json.dumps(config, indent=2)
-    for key in ("ubuntu", "alma"):
+    for key in distros:
         host = lab.config["vms"][key]["management_ip"]
         command = f"""
 set -euo pipefail
@@ -517,9 +615,18 @@ systemctl restart truenas-libvirt-provider.service
 
 
 def test_repo(lab: Lab) -> None:
-    configure_linux_repos(lab)
-    configure_provider_configs(lab)
-    run([str(ROOT / "scripts" / "release.py"), "test-staging", "--config", str(lab.run_dir / "release.json"), "--build-id", lab.build_id, "--execute"], lab.execute)
+    distros = published_distros(lab)
+    wait_for_linux_vms(lab, distros)
+    configure_linux_repos(lab, distros)
+    api_key = lab.config.get("truenas", {}).get("api_key")
+    if api_key:
+        configure_provider_configs(lab, distros)
+    else:
+        print("truenas.api_key is not set; package-manager install test completed without provider/storage checks")
+    if api_key and {"ubuntu", "alma"}.issubset(set(distros)):
+        run([str(ROOT / "scripts" / "release.py"), "test-staging", "--config", str(lab.run_dir / "release.json"), "--build-id", lab.build_id, "--execute"], lab.execute)
+    else:
+        print(f"partial lab repo test completed for distros={distros}; storage gate requires ubuntu and alma artifacts plus truenas.api_key")
 
 
 def configure_truenas(lab: Lab) -> None:
@@ -533,6 +640,10 @@ def write_run_release_config(lab: Lab) -> None:
     tests = lab.config["tests"]
     release = load_config(Path(lab.config["lab"].get("release_template", ROOT / "release" / "release.example.json")))
     release["hosts"]["build"] = socket.gethostname()
+    release.setdefault("ssh", {})["identity_files"] = lab.config["lab"].get("ssh_identity_files", [])
+    release["project"]["source_mode"] = "rsync"
+    release["project"]["source_path"] = str(ROOT)
+    release["project"].setdefault("rsync_excludes", [".git", "build", "dist", "provider-build", ".venv-vnc"])
     release["hosts"]["ubuntu_test"] = f"root@{lab.config['vms']['ubuntu']['management_ip']}"
     release["hosts"]["alma_test"] = f"root@{lab.config['vms']['alma']['management_ip']}"
     release["tests"]["iscsi_pool"] = tests["iscsi_pool_name"]
@@ -540,6 +651,8 @@ def write_run_release_config(lab: Lab) -> None:
     release["tests"]["iscsi_pool_xml"] = str(lab.run_dir / "iscsi-pool.xml")
     release["tests"]["nvmeof_pool_xml"] = str(lab.run_dir / "nvmeof-pool.xml")
     release["tests"]["run_migration"] = bool(tests.get("run_migration", False))
+    if "min_pool_capacity_gib" in tests:
+        release["tests"]["min_pool_capacity_gib"] = int(tests["min_pool_capacity_gib"])
     iscsi_pool = tests["iscsi_truenas_pool"]
     nvme_pool = tests["nvmeof_truenas_pool"]
     target_path = tests.get("target_path", "/dev/disk/by-id")
@@ -595,7 +708,7 @@ def destroy_lab(lab: Lab) -> None:
 
 def parse_args(argv: Iterable[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=["bootstrap-host", "create", "publish-repo", "test-repo", "configure-truenas", "destroy"])
+    parser.add_argument("command", choices=["bootstrap-host", "create-linux", "create", "wait-linux", "publish-repo", "test-repo", "configure-truenas", "destroy"])
     parser.add_argument("--config", default="release/lab.example.json", type=Path)
     parser.add_argument("--build-id", default="manual")
     parser.add_argument("--artifacts", type=Path, help="artifact directory containing ubuntu/ and alma/ subdirectories")
@@ -608,8 +721,12 @@ def main(argv: Iterable[str] = sys.argv[1:]) -> int:
     lab = Lab(load_config(args.config), args.execute, args.build_id)
     if args.command == "bootstrap-host":
         bootstrap_host(lab)
+    elif args.command == "create-linux":
+        create_linux_lab(lab)
     elif args.command == "create":
         create_lab(lab)
+    elif args.command == "wait-linux":
+        wait_for_linux_vms(lab, ("ubuntu", "alma"))
     elif args.command == "publish-repo":
         artifacts = args.artifacts or Path(lab.config["lab"].get("artifact_root", "/srv/subvirt/artifacts")) / args.build_id
         publish_repo(lab, artifacts)

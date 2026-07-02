@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+rm -rf provider-build/deb
 mkdir -p provider-build/deb/DEBIAN provider-build/deb/usr/libexec/truenas-libvirt provider-build/deb/etc/truenas-libvirt provider-build/deb/usr/lib/systemd/system provider-build/deb/usr/lib/tmpfiles.d dist
 cp packaging/debian-provider/control provider-build/deb/DEBIAN/control
 cp packaging/debian-provider/conffiles provider-build/deb/DEBIAN/conffiles

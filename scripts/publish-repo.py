@@ -76,10 +76,12 @@ def checksum(path: Path, algorithm: str) -> str:
     return h.hexdigest()
 
 
-def publish_apt(incoming: Path, web_root: Path, suite: str, component: str) -> None:
+def publish_apt(incoming: Path, web_root: Path, suite: str, component: str) -> bool:
+    if not incoming.exists():
+        return False
     debs = sorted(incoming.glob("*.deb"))
     if not debs:
-        raise SystemExit(f"no .deb files in {incoming}")
+        return False
 
     pool = web_root / "apt" / "ubuntu" / "pool" / component
     packages_dir = web_root / "apt" / "ubuntu" / "dists" / suite / component / "binary-amd64"
@@ -113,6 +115,7 @@ def publish_apt(incoming: Path, web_root: Path, suite: str, component: str) -> N
     suite_dir = web_root / "apt" / "ubuntu" / "dists" / suite
     components = sorted(path.name for path in suite_dir.iterdir() if path.is_dir())
     write_release(web_root / "apt" / "ubuntu", suite, components)
+    return True
 
 
 def release_entry(root: Path, path: Path) -> tuple[int, str, str, str]:
@@ -145,22 +148,31 @@ def write_release(apt_root: Path, suite: str, components: list[str]) -> None:
     run(["gpg", "--batch", "--yes", "--detach-sign", "--armor", "-o", str(dists / "Release.gpg"), str(release)])
 
 
-def publish_yum(incoming: Path, web_root: Path, distro_path: str, channel: str, gpg_name: str) -> None:
+def publish_yum(incoming: Path, web_root: Path, distro_path: str, channel: str, gpg_name: str) -> bool:
+    if not incoming.exists():
+        return False
     rpms = [
         rpm for rpm in sorted(incoming.glob("*.rpm"))
         if not rpm.name.endswith(".src.rpm") and "debuginfo" not in rpm.name and "debugsource" not in rpm.name
     ]
     if not rpms:
-        raise SystemExit(f"no binary .rpm files in {incoming}")
+        return False
     target = web_root / "yum" / distro_path / channel
     target.mkdir(parents=True, exist_ok=True)
     for rpm in rpms:
         dst = target / rpm.name
         shutil.copy2(rpm, dst)
-        run(["rpmsign", "--define", f"_gpg_name {gpg_name}", "--addsign", str(dst)])
+        sign_cmd = ["rpmsign"]
+        if shutil.which("gpg"):
+            sign_cmd += ["--define", f"__gpg {shutil.which('gpg')}"]
+        if os.environ.get("GNUPGHOME"):
+            sign_cmd += ["--define", f"_gpg_path {os.environ['GNUPGHOME']}"]
+        sign_cmd += ["--define", f"_gpg_name {gpg_name}", "--addsign", str(dst)]
+        run(sign_cmd)
     run(["createrepo_c", "--update", str(target)])
     repomd = target / "repodata" / "repomd.xml"
     run(["gpg", "--batch", "--yes", "--detach-sign", "--armor", str(repomd)])
+    return True
 
 
 def export_key(web_root: Path) -> None:
@@ -180,8 +192,12 @@ def main() -> int:
     parser.add_argument("--gpg-name", default="Subvirt Repository <repo@subvirt.local>")
     args = parser.parse_args()
 
-    publish_apt(args.incoming / "ubuntu", args.web_root, args.suite, args.component)
-    publish_yum(args.incoming / "alma", args.web_root, args.yum_distro_path, args.component, args.gpg_name)
+    published = [
+        publish_apt(args.incoming / "ubuntu", args.web_root, args.suite, args.component),
+        publish_yum(args.incoming / "alma", args.web_root, args.yum_distro_path, args.component, args.gpg_name),
+    ]
+    if not any(published):
+        raise SystemExit(f"no publishable packages found in {args.incoming}")
     export_key(args.web_root)
     if shutil.which("restorecon"):
         run(["restorecon", "-RF", str(args.web_root)])

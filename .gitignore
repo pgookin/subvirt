@@ -10,6 +10,7 @@ id_*
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.venv-vnc/
 
 # Generated package/build artifacts
 artifacts/
@@ -32,3 +33,4 @@ work-patchgen/
 
 # Runtime scratch
 status
+truenas-*.png

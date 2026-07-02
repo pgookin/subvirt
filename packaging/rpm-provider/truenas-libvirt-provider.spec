@@ -1,3 +1,9 @@
+%{!?_unitdir:%global _unitdir /usr/lib/systemd/system}
+%{!?_tmpfilesdir:%global _tmpfilesdir /usr/lib/tmpfiles.d}
+%{!?systemd_post:%global systemd_post() %{nil}}
+%{!?systemd_preun:%global systemd_preun() %{nil}}
+%{!?systemd_postun_with_restart:%global systemd_postun_with_restart() %{nil}}
+
 Name:           truenas-libvirt-provider
 Version:        0.1.0
 Release:        8%{?dist}
@@ -7,6 +13,7 @@ BuildArch:      noarch
 Requires:       python3
 Requires:       iscsi-initiator-utils
 Requires:       nvme-cli
+Requires:       kmod
 Requires:       systemd
 
 %description

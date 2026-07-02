@@ -34,6 +34,7 @@ from truenas_provider import (
     get_nvmet_subsys,
     ensure_nvmet_port_subsys,
     ensure_nvmet_subsys,
+    ensure_service_enabled_and_running,
     load_config,
     local_iscsi_iqn,
     local_nvme_nqn,
@@ -140,6 +141,13 @@ class TrueNASLibvirtProvider:
                 raise ProviderError("nvmeof_unavailable", "NVMe-oF transport requires nvme-cli", nvme)
             if not nvme["hostnqn_configured"]:
                 raise ProviderError("nvmeof_unavailable", f"NVMe-oF transport requires a host NQN in {LOCAL_NVME_HOSTNQN_FILE}", nvme)
+            if not nvme["nvme_tcp_loaded"]:
+                modprobe = "/usr/sbin/modprobe" if Path("/usr/sbin/modprobe").exists() else "modprobe"
+                result = run_command([modprobe, "nvme-tcp"], check=False)
+                if result.returncode != 0 or not Path("/sys/module/nvme_tcp").exists():
+                    nvme["modprobe_stderr"] = result.stderr
+                    nvme["modprobe_stdout"] = result.stdout
+                    raise ProviderError("nvmeof_unavailable", "NVMe-oF transport requires the nvme-tcp kernel module", nvme)
             return
         raise ProviderError("transport_invalid", f"unsupported transport: {transport}")
 
@@ -257,8 +265,9 @@ class TrueNASLibvirtProvider:
         target, _ = ensure_iscsi_target(client, target_name, zvol, int(portal["id"]), int(initiator["id"]), [local_iscsi_iqn()])
         extent, _ = ensure_iscsi_extent(client, target_name, zvol)
         mapping, _ = ensure_iscsi_mapping(client, int(target["id"]), int(extent["id"]))
-        client.call("service.reload", ["iscsitarget"])
+        service = ensure_service_enabled_and_running(client, "iscsitarget")
         return {
+            "service": service,
             "portal": f"{target_ip}:3260,1",
             "target_iqn": f"iqn.2005-10.org.freenas.ctl:{target.get('name', target_name)}",
             "lun": mapping.get("lunid", 0),
@@ -279,8 +288,9 @@ class TrueNASLibvirtProvider:
         ensure_nvmet_port_subsys(client, int(port["id"]), int(subsys["id"]))
         host, _ = ensure_nvmet_host(client, local_nvme_nqn())
         ensure_nvmet_host_subsys(client, int(host["id"]), int(subsys["id"]))
-        client.call("service.reload", ["nvmet"])
+        service = ensure_service_enabled_and_running(client, "nvmet")
         return {
+            "service": service,
             "target": f"{target_ip}:{port_number}",
             "traddr": target_ip,
             "trsvcid": port_number,
@@ -509,7 +519,7 @@ class TrueNASLibvirtProvider:
         for extent in extents:
             if isinstance(extent, dict):
                 client.call("iscsi.extent.delete", [extent["id"], False, True])
-        client.call("service.reload", ["iscsitarget"])
+        ensure_service_enabled_and_running(client, "iscsitarget")
 
     def _cleanup_nvme_export(self, client: JsonRpcWebSocket, name: str) -> None:
         subsystems = query_all(client, "nvmet.subsys.query", [["name", "=", self._target_name(name)]])
@@ -529,7 +539,7 @@ class TrueNASLibvirtProvider:
                     if ns_subsys == subsys_id or (isinstance(ns_subsys, dict) and ns_subsys.get("id") == subsys_id):
                         client.call("nvmet.namespace.delete", [namespace["id"], {"remove": False}])
             client.call("nvmet.subsys.delete", [subsys_id, {"force": True}])
-        client.call("service.reload", ["nvmet"])
+        ensure_service_enabled_and_running(client, "nvmet")
 
     def vol_delete(self, params: dict[str, Any]) -> dict[str, Any]:
         pool = str(params["pool"])

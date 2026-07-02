@@ -5,6 +5,7 @@ Priority: optional
 Architecture: all
 Maintainer: subvirt local build <root@localhost>
 Depends: python3, open-iscsi, nvme-cli, systemd
+Recommends: linux-modules-extra-generic | linux-modules-extra-virtual
 Description: TrueNAS provider daemon for libvirt storage pools
  Provider daemon used by the local libvirt TrueNAS storage backend to create,
  export, discover, and resolve TrueNAS-backed iSCSI and NVMe-oF zvol volumes.

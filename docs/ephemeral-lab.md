@@ -9,7 +9,7 @@ Subvirt can run release-candidate tests against disposable VMs created on `subvi
 - AlmaLinux VM: fresh AlmaLinux 10 cloud image test host.
 - TrueNAS VM: ISO-installed or golden-image appliance with separate management and storage NICs.
 
-The lab creates two libvirt networks:
+The lab creates two libvirt networks. Bridge names must stay within Linux's 15-character interface-name limit:
 
 - `subvirt-lab-mgmt`: NAT network, default `192.168.150.0/24`, also serves the per-run apt/dnf repo from `192.168.150.1:8080`.
 - `subvirt-lab-storage`: isolated network, default `192.168.151.0/24`, used by iSCSI and NVMe-oF traffic.
@@ -33,19 +33,26 @@ Bootstrap the VM factory host:
 sudo ./scripts/lab.py bootstrap-host --config /srv/subvirt/release/lab.json --build-id bootstrap --execute
 ```
 
-Create a lab for an existing build ID:
+Create only the Ubuntu and AlmaLinux VMs while debugging cloud-init, networking, or package-manager behavior:
+
+```sh
+./scripts/lab.py create-linux --config /srv/subvirt/release/lab.json --build-id <build-id> --execute
+./scripts/lab.py wait-linux --config /srv/subvirt/release/lab.json --build-id <build-id> --execute
+```
+
+Create the full lab for an existing build ID, including TrueNAS:
 
 ```sh
 ./scripts/lab.py create --config /srv/subvirt/release/lab.json --build-id <build-id> --execute
 ```
 
-Publish the per-run repo from build artifacts:
+Publish the per-run repo from build artifacts. The publisher accepts full or one-distro artifact directories, which lets Ubuntu-only or Alma-only candidate builds test the package-manager path without requiring unrelated packages:
 
 ```sh
 ./scripts/lab.py publish-repo --config /srv/subvirt/release/lab.json --build-id <build-id> --artifacts /srv/subvirt/artifacts/<build-id> --execute
 ```
 
-Run repo-based package installation and storage tests:
+Run repo-based package installation and storage tests. Full Ubuntu+Alma artifact sets run the storage gate; one-distro artifact sets install and configure only that distro and skip the two-host storage gate:
 
 ```sh
 ./scripts/lab.py test-repo --config /srv/subvirt/release/lab.json --build-id <build-id> --execute

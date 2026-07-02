@@ -47,15 +47,46 @@ def is_local_host(host: str) -> bool:
     return host in local_names
 
 
-def remote(host: str, command: str, execute: bool) -> None:
+def ssh_identity_args(config: dict) -> list[str]:
+    args: list[str] = []
+    seen: set[str] = set()
+    for item in config.get("ssh", {}).get("identity_files", []):
+        expanded = str(Path(item).expanduser())
+        if expanded in seen or not Path(expanded).exists():
+            continue
+        seen.add(expanded)
+        args.extend(["-i", expanded])
+    return args
+
+
+def ssh_args(config: dict) -> list[str]:
+    return ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", *ssh_identity_args(config)]
+
+
+def remote(host: str, command: str, ctx_or_execute) -> None:
+    if isinstance(ctx_or_execute, Context):
+        execute = ctx_or_execute.execute
+        config = ctx_or_execute.config
+    else:
+        execute = ctx_or_execute
+        config = {}
     if is_local_host(host):
         run(["bash", "-lc", command], execute)
     else:
-        run(["ssh", host, command], execute)
+        run([*ssh_args(config), host, command], execute)
 
 
-def rsync_to(src: str, host: str, dst: str, execute: bool, excludes: list[str] | None = None) -> None:
+def rsync_to(src: str, host: str, dst: str, ctx_or_execute, excludes: list[str] | None = None) -> None:
+    if isinstance(ctx_or_execute, Context):
+        execute = ctx_or_execute.execute
+        config = ctx_or_execute.config
+    else:
+        execute = ctx_or_execute
+        config = {}
     argv = ["rsync", "-a", "--delete"]
+    identities = ssh_identity_args(config)
+    if identities:
+        argv.extend(["-e", " ".join(q(part) for part in ssh_args(config))])
     for pattern in excludes or []:
         argv.extend(["--exclude", pattern])
     argv.extend([src, f"{host}:{dst}"])
@@ -96,8 +127,8 @@ def remote_checkout(ctx: Context, host: str) -> None:
     if source_mode == "rsync":
         source_path = p.get("source_path", ".").rstrip("/") + "/"
         excludes = p.get("rsync_excludes", [])
-        remote(host, f"install -d -m 0755 {q(workdir)}", ctx.execute)
-        rsync_to(source_path, host, workdir + "/", ctx.execute, excludes)
+        remote(host, f"install -d -m 0755 {q(workdir)}", ctx)
+        rsync_to(source_path, host, workdir + "/", ctx, excludes)
         return
     if source_mode != "git":
         raise ValueError(f"unsupported project.source_mode: {source_mode}")
@@ -119,7 +150,7 @@ def remote_checkout(ctx: Context, host: str) -> None:
         checkout,
         "git submodule update --init --recursive || true",
     ])
-    remote(host, command, ctx.execute)
+    remote(host, command, ctx)
 
 
 def checkout_build(ctx: Context) -> None:
@@ -138,7 +169,7 @@ def build_ubuntu(ctx: Context) -> None:
         "./scripts/container-build-ubuntu.sh",
         f"find dist -maxdepth 1 -type f \\( -name '*.deb' -o -name '*.dsc' -o -name '*.changes' -o -name '*.buildinfo' -o -name '*.tar.*' \\) -exec cp -a {{}} {q(out_dir)}/ \\;",
     ])
-    remote(host, command, ctx.execute)
+    remote(host, command, ctx)
 
 
 def build_alma(ctx: Context) -> None:
@@ -153,7 +184,7 @@ def build_alma(ctx: Context) -> None:
         "./scripts/container-build-alma.sh",
         f"find dist -maxdepth 1 -type f -name '*.rpm' -exec cp -a {{}} {q(out_dir)}/ \\;",
     ])
-    remote(host, command, ctx.execute)
+    remote(host, command, ctx)
 
 
 def collect_artifact(ctx: Context, distro: str) -> None:
@@ -162,11 +193,11 @@ def collect_artifact(ctx: Context, distro: str) -> None:
     host = hosts(ctx)["build"]
     src = f"{p['artifact_dir']}/{ctx.build_id}/{distro}/"
     dst = str(local / distro) + "/"
-    run(["mkdir", "-p", dst], ctx.execute)
+    run(["mkdir", "-p", dst], ctx)
     if is_local_host(host):
-        run(["rsync", "-a", src, dst], ctx.execute)
+        run(["rsync", "-a", src, dst], ctx)
     else:
-        run(["rsync", "-a", f"{host}:{src}", dst], ctx.execute)
+        run(["rsync", "-a", f"{host}:{src}", dst], ctx)
 
 
 def collect_artifacts(ctx: Context) -> None:
@@ -178,8 +209,8 @@ def publish_staging(ctx: Context) -> None:
     repo_host = hosts(ctx)["repo"]
     r = repos(ctx)
     remote_base = f"/srv/subvirt/incoming/{ctx.build_id}"
-    remote(repo_host, f"install -d -m 0755 {q(remote_base)}", ctx.execute)
-    rsync_to(f"artifacts/{ctx.build_id}/", repo_host, remote_base + "/", ctx.execute)
+    remote(repo_host, f"install -d -m 0755 {q(remote_base)}", ctx)
+    rsync_to(f"artifacts/{ctx.build_id}/", repo_host, remote_base + "/", ctx)
     command = " ".join([
         "/usr/local/libexec/subvirt/publish-repo.py",
         f"--incoming {q(remote_base)}",
@@ -188,11 +219,11 @@ def publish_staging(ctx: Context) -> None:
         "--component staging",
         f"--yum-distro-path {q(r.get('yum_distro_path', 'almalinux/10'))}",
     ])
-    remote(repo_host, command, ctx.execute)
+    remote(repo_host, command, ctx)
 
 def storage_base_args(ctx: Context) -> str:
     t = tests(ctx)
-    return "--build-id {build_id} --iscsi-pool {iscsi_pool} --nvmeof-pool {nvmeof_pool} --iscsi-pool-xml {iscsi_xml} --nvmeof-pool-xml {nvmeof_xml} --migration-domain {domain}".format(
+    args = "--build-id {build_id} --iscsi-pool {iscsi_pool} --nvmeof-pool {nvmeof_pool} --iscsi-pool-xml {iscsi_xml} --nvmeof-pool-xml {nvmeof_xml} --migration-domain {domain}".format(
         build_id=q(test_id(ctx)),
         iscsi_pool=q(t["iscsi_pool"]),
         nvmeof_pool=q(t["nvmeof_pool"]),
@@ -200,6 +231,17 @@ def storage_base_args(ctx: Context) -> str:
         nvmeof_xml=q(t["nvmeof_pool_xml"]),
         domain=q(t["migration_domain"]),
     )
+    if "min_pool_capacity_gib" in t:
+        args += f" --min-pool-capacity-gib {int(t['min_pool_capacity_gib'])}"
+    return args
+
+
+def sync_storage_pool_xml(ctx: Context, host: str) -> None:
+    t = tests(ctx)
+    for key in ("iscsi_pool_xml", "nvmeof_pool_xml"):
+        path = t[key]
+        remote(host, f"install -d -m 0755 {q(str(Path(path).parent))}", ctx)
+        rsync_to(path, host, path, ctx)
 
 
 def run_storage_gate(ctx: Context) -> None:
@@ -208,6 +250,7 @@ def run_storage_gate(ctx: Context) -> None:
     alma = hosts(ctx)["alma_test"]
     for host in (ubuntu, alma):
         remote_checkout(ctx, host)
+        sync_storage_pool_xml(ctx, host)
     base = storage_base_args(ctx)
     ubuntu_create = " && ".join([
         f"cd {q(p['workdir'])}",
@@ -229,12 +272,12 @@ def run_storage_gate(ctx: Context) -> None:
         f"cd {q(p['workdir'])}",
         f"./scripts/test-storage.py --action migrate --role ubuntu --peer {q(alma)} {base}",
     ])
-    remote(ubuntu, ubuntu_create, ctx.execute)
-    remote(alma, alma_create, ctx.execute)
-    remote(ubuntu, ubuntu_check, ctx.execute)
-    remote(alma, alma_check, ctx.execute)
+    remote(ubuntu, ubuntu_create, ctx)
+    remote(alma, alma_create, ctx)
+    remote(ubuntu, ubuntu_check, ctx)
+    remote(alma, alma_check, ctx)
     if tests(ctx).get("run_migration", bool(tests(ctx).get("migration_domain"))):
-        remote(ubuntu, migration, ctx.execute)
+        remote(ubuntu, migration, ctx)
 
 
 
@@ -263,7 +306,7 @@ def test_ephemeral_lab(ctx: Context) -> None:
         f"else echo 'Ephemeral lab preserved for failed build {ctx.build_id}. Cleanup with: ./scripts/lab.py destroy --config {q(config_path)} --build-id {q(ctx.build_id)} --execute' >&2; fi",
         "exit $rc",
     ])
-    remote(host, command, ctx.execute)
+    remote(host, command, ctx)
 
 
 def test_staging(ctx: Context) -> None:
@@ -280,17 +323,17 @@ def artifact_stage_dir(ctx: Context, distro: str) -> str:
 def copy_artifacts_to_test_host(ctx: Context, distro: str, target: str, pattern: str) -> None:
     build_host = hosts(ctx)["build"]
     stage_dir = artifact_stage_dir(ctx, distro)
-    remote(target, f"install -d -m 0755 {q(stage_dir)}", ctx.execute)
+    remote(target, f"install -d -m 0755 {q(stage_dir)}", ctx)
     if is_local_host(build_host):
         command = f"scp {q(artifact_dir(ctx, distro))}/{pattern} {q(f'{target}:{stage_dir}/')}"
-        run(["bash", "-lc", command], ctx.execute)
+        run(["bash", "-lc", command], ctx)
     else:
         run([
             "scp",
             "-3",
             f"{build_host}:{artifact_dir(ctx, distro)}/{pattern}",
             f"{target}:{stage_dir}/",
-        ], ctx.execute)
+        ], ctx)
 
 
 def virt_manager_validation_command() -> str:
@@ -319,6 +362,7 @@ def service_validation_command() -> str:
         "systemctl daemon-reload",
         "systemctl enable --now truenas-libvirt-provider.service",
         "systemctl restart truenas-libvirt-provider.service",
+        "for unit in virtqemud.socket virtstoraged.socket virtproxyd.socket virtlogd.socket virtlockd.socket; do systemctl list-unit-files \"$unit\" --no-legend | grep -q . && systemctl enable --now \"$unit\" || true; done",
         "for unit in virtstoraged.service libvirtd.service; do systemctl list-unit-files \"$unit\" --no-legend | grep -q . && { systemctl restart \"$unit\"; break; }; done",
         "systemctl list-unit-files virtqemud.service --no-legend | grep -q . && systemctl restart virtqemud.service || true",
         "systemctl is-active truenas-libvirt-provider.service",
@@ -344,7 +388,7 @@ def install_ubuntu_artifacts(ctx: Context) -> None:
         service_validation_command(),
         virt_manager_validation_command(),
     ])
-    remote(host, command, ctx.execute)
+    remote(host, command, ctx)
 
 
 def install_alma_artifacts(ctx: Context) -> None:
@@ -360,7 +404,7 @@ def install_alma_artifacts(ctx: Context) -> None:
         service_validation_command(),
         virt_manager_validation_command(),
     ])
-    remote(host, command, ctx.execute)
+    remote(host, command, ctx)
 
 
 def test_artifacts(ctx: Context) -> None:
@@ -381,7 +425,7 @@ def promote(ctx: Context) -> None:
         "--component stable",
         f"--yum-distro-path {q(r.get('yum_distro_path', 'almalinux/10'))}",
     ])
-    remote(repo_host, command, ctx.execute)
+    remote(repo_host, command, ctx)
 
 def release(ctx: Context) -> None:
     build_ubuntu(ctx)

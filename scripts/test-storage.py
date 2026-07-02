@@ -15,9 +15,10 @@ from typing import Iterable
 
 def run(argv: list[str]) -> str:
     print("+ " + " ".join(argv), flush=True)
-    result = subprocess.run(argv, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=True)
+    result = subprocess.run(argv, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
     if result.stdout:
         print(result.stdout, end="")
+    result.check_returncode()
     return result.stdout
 
 

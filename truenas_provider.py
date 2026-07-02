@@ -453,6 +453,36 @@ def query_all(client: JsonRpcWebSocket, method: str, filters: list[object] | Non
     return result
 
 
+def ensure_service_enabled_and_running(client: JsonRpcWebSocket, service: str) -> dict[str, object]:
+    services = query_all(client, "service.query", [["service", "=", service]])
+    if not services:
+        raise WebSocketError(f"TrueNAS service not found: {service}")
+    current = services[0]
+    assert isinstance(current, dict)
+    changed = False
+    if current.get("enable") is not True:
+        client.call("service.update", [service, {"enable": True}])
+        changed = True
+    if current.get("state") != "RUNNING":
+        started = client.call("service.start", [service, {"silent": False, "timeout": 120}])
+        if started is not True:
+            raise WebSocketError(f"TrueNAS service did not start: {service}")
+        changed = True
+    else:
+        reloaded = client.call("service.reload", [service, {"silent": False, "timeout": 120}])
+        if reloaded is not True:
+            raise WebSocketError(f"TrueNAS service did not reload: {service}")
+    refreshed = query_all(client, "service.query", [["service", "=", service]])
+    status = refreshed[0] if refreshed else current
+    assert isinstance(status, dict)
+    return {
+        "service": service,
+        "changed": changed,
+        "enable": status.get("enable"),
+        "state": status.get("state"),
+    }
+
+
 def ensure_iscsi_portal(client: JsonRpcWebSocket, ip: str) -> tuple[dict[str, object], bool]:
     for portal in query_all(client, "iscsi.portal.query"):
         assert isinstance(portal, dict)
@@ -618,11 +648,12 @@ def cmd_iscsi_export(args: argparse.Namespace) -> None:
         )
         extent, extent_changed = ensure_iscsi_extent(client, target_name, zvol)
         mapping, mapping_changed = ensure_iscsi_mapping(client, int(target["id"]), int(extent["id"]))
-        client.call("service.reload", ["iscsitarget"])
+        service = ensure_service_enabled_and_running(client, "iscsitarget")
     print(
         json.dumps(
             {
                 "target_iqn": f"iqn.2005-10.org.freenas.ctl:{target.get('name', target_name)}",
+                "service": service,
                 "portal": {"id": portal["id"], "changed": portal_changed},
                 "initiator": {"id": initiator["id"], "changed": initiator_changed},
                 "target": {"id": target["id"], "changed": target_changed},
@@ -784,12 +815,13 @@ def cmd_nvmeof_export(args: argparse.Namespace) -> None:
                     "association_changed": host_assoc_changed,
                 }
             )
-        client.call("service.reload", ["nvmet"])
+        service = ensure_service_enabled_and_running(client, "nvmet")
     print(
         json.dumps(
             {
                 "target": f"{target_ip}:{args.port}",
                 "subnqn": subsys.get("subnqn"),
+                "service": service,
                 "subsys": {"id": subsys["id"], "changed": subsys_changed},
                 "namespace": {"id": namespace["id"], "changed": namespace_changed},
                 "port": {"id": port["id"], "changed": port_changed},

@@ -210,7 +210,7 @@ def add_ubuntu_truenas_package(src: Path) -> None:
     debian = src / "debian"
     install_file = debian / "libvirt-daemon-driver-storage-truenas.install"
     install_file.write_text(
-        "usr/lib/${DEB_HOST_MULTIARCH}/libvirt/storage-backend/libvirt_storage_backend_truenas.so\n",
+        "usr/lib/*/libvirt/storage-backend/libvirt_storage_backend_truenas.so\n",
         encoding="utf-8",
     )
 

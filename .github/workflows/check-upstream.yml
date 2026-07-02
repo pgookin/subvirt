@@ -38,8 +38,27 @@ jobs:
         if: steps.check.outputs.updates_available == 'true'
         id: release_inputs
         run: ./scripts/lock-release-inputs.py --report upstream-report.json --github-output "$GITHUB_OUTPUT"
+      - name: Refresh source inputs and manifests
+        if: steps.check.outputs.updates_available == 'true'
+        env:
+          BUILD_ID: ${{ steps.release_inputs.outputs.build_id }}
+          REF: ${{ github.sha }}
+          UBUNTU_VERSION: ${{ steps.release_inputs.outputs.ubuntu_version }}
+          ALMA_VERSION: ${{ steps.release_inputs.outputs.alma_version }}
+          BUILD_UBUNTU: ${{ steps.release_inputs.outputs.build_ubuntu }}
+          BUILD_ALMA: ${{ steps.release_inputs.outputs.build_alma }}
+        run: |
+          set -euo pipefail
+          if [ "$BUILD_UBUNTU" = "true" ]; then
+            ./scripts/refresh-libvirt-source.py --config "$SUBVIRT_RELEASE_CONFIG" --distro ubuntu --version "$UBUNTU_VERSION"
+          fi
+          if [ "$BUILD_ALMA" = "true" ]; then
+            ./scripts/refresh-libvirt-source.py --config "$SUBVIRT_RELEASE_CONFIG" --distro alma --version "$ALMA_VERSION"
+          fi
+          ./scripts/write-upstream-manifest.py --report upstream-report.json --changed-only
       - name: Create upstream refresh PR
         if: steps.check.outputs.updates_available == 'true'
+        id: refresh_pr
         uses: peter-evans/create-pull-request@v8.1.1
         with:
           branch: automation/upstream-libvirt-refresh
@@ -47,12 +66,14 @@ jobs:
           commit-message: Update tracked upstream libvirt versions
           title: Update tracked upstream libvirt versions
           body-path: upstream-report.json
-          add-paths: release/upstream-lock.json
+          add-paths: |
+            release/upstream-lock.json
+            release/upstream-manifests/**
       - name: Run trusted candidate release without stable promotion
-        if: steps.check.outputs.updates_available == 'true'
+        if: steps.check.outputs.updates_available == 'true' && steps.refresh_pr.outputs.pull-request-number != ''
         env:
           BUILD_ID: ${{ steps.release_inputs.outputs.build_id }}
-          REF: ${{ github.sha }}
+          REF: ${{ steps.refresh_pr.outputs.pull-request-branch }}
           REFRESH_SOURCES: "true"
           UBUNTU_VERSION: ${{ steps.release_inputs.outputs.ubuntu_version }}
           ALMA_VERSION: ${{ steps.release_inputs.outputs.alma_version }}
@@ -60,6 +81,29 @@ jobs:
           BUILD_ALMA: ${{ steps.release_inputs.outputs.build_alma }}
           PROMOTE_STABLE: "false"
         run: ./scripts/run-candidate-release.sh
+      - name: Comment candidate success
+        if: steps.check.outputs.updates_available == 'true' && steps.refresh_pr.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_ID: ${{ steps.release_inputs.outputs.build_id }}
+          PR_NUMBER: ${{ steps.refresh_pr.outputs.pull-request-number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh pr comment "$PR_NUMBER" --body "Candidate build \`$BUILD_ID\` passed. Evidence: $RUN_URL"
+      - name: Merge upstream refresh PR
+        if: steps.check.outputs.updates_available == 'true' && steps.refresh_pr.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.refresh_pr.outputs.pull-request-number }}
+        run: gh pr merge "$PR_NUMBER" --squash --delete-branch
+      - name: Publish tested build and promote stable
+        if: steps.check.outputs.updates_available == 'true' && steps.refresh_pr.outputs.pull-request-number != ''
+        env:
+          BUILD_ID: ${{ steps.release_inputs.outputs.build_id }}
+        run: |
+          set -euo pipefail
+          ./scripts/release.py publish-staging --config "$SUBVIRT_RELEASE_CONFIG" --build-id "$BUILD_ID" --execute
+          ./scripts/release.py promote --config "$SUBVIRT_RELEASE_CONFIG" --build-id "$BUILD_ID" --execute
       - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:

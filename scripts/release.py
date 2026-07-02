@@ -134,21 +134,31 @@ def remote_checkout(ctx: Context, host: str) -> None:
         raise ValueError(f"unsupported project.source_mode: {source_mode}")
     repo_url = p["repo_url"]
     origin_ref = f"origin/{ctx.ref}"
+    q_workdir = q(workdir)
+    q_repo = q(repo_url)
+    q_origin_ref = q(origin_ref)
+    q_ref = q(ctx.ref)
     checkout = " ".join([
         "if git rev-parse --verify --quiet",
-        q(origin_ref),
-        ">/dev/null; then git checkout --detach",
-        q(origin_ref),
-        "; else git checkout",
-        q(ctx.ref),
+        q_origin_ref,
+        ">/dev/null; then git checkout --force --detach",
+        q_origin_ref,
+        "&& git reset --hard",
+        q_origin_ref,
+        "; else git checkout --force",
+        q_ref,
+        "&& git reset --hard",
+        q_ref,
         "; fi",
     ])
     command = " && ".join([
-        f"if test -d {q(workdir)}/.git; then true; else rm -rf {q(workdir)} && git clone {q(repo_url)} {q(workdir)}; fi",
-        f"cd {q(workdir)}",
+        f"git config --global --add safe.directory {q_workdir} || true",
+        f"if test -d {q_workdir}/.git; then true; else rm -rf {q_workdir} && git clone {q_repo} {q_workdir}; fi",
+        f"cd {q_workdir}",
         "git fetch --tags --prune origin",
         checkout,
-        "git submodule update --init --recursive || true",
+        "git clean -ffd",
+        "(git submodule update --init --recursive || true)",
     ])
     remote(host, command, ctx)
 

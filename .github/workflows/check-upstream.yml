@@ -2,7 +2,7 @@ name: Check upstream libvirt
 
 on:
   schedule:
-    - cron: "17 */8 * * *"
+    - cron: "23 */8 * * *"
   workflow_dispatch:
     inputs:
       finalize:

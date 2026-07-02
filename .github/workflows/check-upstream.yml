@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: "17 */8 * * *"
   workflow_dispatch:
+    inputs:
+      finalize:
+        description: Merge the refresh PR and promote stable after tests pass
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -11,6 +17,7 @@ permissions:
 
 env:
   SUBVIRT_RELEASE_CONFIG: ${{ vars.SUBVIRT_RELEASE_CONFIG || '/srv/subvirt/release/release.json' }}
+  FINALIZE_UPSTREAM_REFRESH: ${{ github.event_name == 'schedule' || inputs.finalize }}
 
 jobs:
   check:
@@ -88,16 +95,17 @@ jobs:
           BUILD_ID: ${{ steps.release_inputs.outputs.build_id }}
           PR_NUMBER: ${{ steps.refresh_pr.outputs.pull-request-number }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          FINALIZE: ${{ env.FINALIZE_UPSTREAM_REFRESH }}
         run: |
-          gh pr comment "$PR_NUMBER" --body "Candidate build \`$BUILD_ID\` passed. Evidence: $RUN_URL"
+          gh pr comment "$PR_NUMBER" --body "Candidate build \`$BUILD_ID\` passed. Evidence: $RUN_URL. Finalize enabled: \`$FINALIZE\`."
       - name: Merge upstream refresh PR
-        if: steps.check.outputs.updates_available == 'true' && steps.refresh_pr.outputs.pull-request-number != ''
+        if: steps.check.outputs.updates_available == 'true' && steps.refresh_pr.outputs.pull-request-number != '' && env.FINALIZE_UPSTREAM_REFRESH == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.refresh_pr.outputs.pull-request-number }}
         run: gh pr merge "$PR_NUMBER" --squash --delete-branch
       - name: Publish tested build and promote stable
-        if: steps.check.outputs.updates_available == 'true' && steps.refresh_pr.outputs.pull-request-number != ''
+        if: steps.check.outputs.updates_available == 'true' && steps.refresh_pr.outputs.pull-request-number != '' && env.FINALIZE_UPSTREAM_REFRESH == 'true'
         env:
           BUILD_ID: ${{ steps.release_inputs.outputs.build_id }}
         run: |

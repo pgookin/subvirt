@@ -37,7 +37,7 @@ Generated paths such as `build/`, `sources/`, `dist/`, `provider-build/`, `work-
 
 `scripts/write-upstream-manifest.py` records the durable refresh proof in `release/upstream-manifests/`. These manifests are committed with the lock update and include the upstream source file checksums, tracked patch checksums, generated local version, and a small generated-output check. Generated source trees, downloaded source packages, binary packages, and repo metadata are still not committed.
 
-When the upstream check workflow detects a newer parent package, it refreshes generated source inputs, writes manifests, and opens or updates `automation/upstream-libvirt-refresh`. The candidate build runs from that PR branch. If the candidate build and ephemeral lab test pass, the workflow comments with the evidence URL, merges the PR, publishes the tested build to staging, and promotes the same build ID to stable. If refresh, build, test, merge, or publish fails, stable promotion does not run.
+When the upstream check workflow detects a newer parent package, it refreshes generated source inputs, writes manifests, and opens or updates `automation/upstream-libvirt-refresh`. The candidate build runs from that PR branch. If the candidate build and ephemeral lab test pass, the workflow comments with the evidence URL. Scheduled runs finalize automatically by merging the PR, publishing the tested build to staging, and promoting the same build ID to stable. Manual `workflow_dispatch` runs default to `finalize=false`, which exercises the production path but skips merge and stable promotion; set `finalize=true` only when you want the manual run to publish stable. If refresh, build, test, merge, or publish fails, stable promotion does not run.
 
 ## Commands
 

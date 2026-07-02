@@ -533,7 +533,9 @@ def wait_for_ssh(lab: Lab, host: str, label: str, attempts: int = 60) -> None:
 
 def wait_for_linux_vms(lab: Lab, distros: Iterable[str]) -> None:
     for distro in distros:
-        wait_for_ssh(lab, lab.config["vms"][distro]["management_ip"], distro)
+        host = lab.config["vms"][distro]["management_ip"]
+        wait_for_ssh(lab, host, distro)
+        ssh(f"root@{host}", "cloud-init status --wait || true", lab)
 
 
 def configure_linux_repos(lab: Lab, distros: Iterable[str] | None = None) -> None:

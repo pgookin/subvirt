@@ -230,7 +230,14 @@ def ssh_identity_args(config: dict[str, Any]) -> list[str]:
 
 
 def ssh_base_args(lab: Lab) -> list[str]:
-    return ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", *ssh_identity_args(lab.config)]
+    known_hosts = lab.run_dir / "known_hosts"
+    return [
+        "ssh",
+        "-o", "BatchMode=yes",
+        "-o", "StrictHostKeyChecking=accept-new",
+        "-o", f"UserKnownHostsFile={known_hosts}",
+        *ssh_identity_args(lab.config),
+    ]
 
 
 def write_cloud_init(lab: Lab, name: str, distro: str, mgmt_mac: str, storage_mac: str, mgmt_ip: str, storage_ip: str) -> Path:

@@ -45,6 +45,7 @@
   },
   "lab": {
     "enabled": false,
+    "full": false,
     "host": "subvirt-build",
     "config": "/srv/subvirt/release/lab.json"
   }

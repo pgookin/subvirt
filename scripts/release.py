@@ -303,12 +303,13 @@ def test_ephemeral_lab(ctx: Context) -> None:
     workdir = p["workdir"]
     config_path = lab.get("config", "/srv/subvirt/release/lab.json")
     artifacts = f"{p['artifact_dir']}/{ctx.build_id}"
+    create_command = "create" if lab.get("full", False) else "create-linux"
     remote_checkout(ctx, host)
     command = " ; ".join([
         "set -e",
         f"cd {q(workdir)}",
         "set +e",
-        f"./scripts/lab.py create --config {q(config_path)} --build-id {q(ctx.build_id)} --execute && "
+        f"./scripts/lab.py {create_command} --config {q(config_path)} --build-id {q(ctx.build_id)} --execute && "
         f"./scripts/lab.py publish-repo --config {q(config_path)} --build-id {q(ctx.build_id)} --artifacts {q(artifacts)} --execute && "
         f"./scripts/lab.py test-repo --config {q(config_path)} --build-id {q(ctx.build_id)} --execute",
         "rc=$?",

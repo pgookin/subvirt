@@ -38,6 +38,16 @@ for key in sys.argv[2].split("."):
 print(cur)' "$CONFIG" "$1"
 }
 
+config_bool() {
+  python3 -c 'import json, sys; data=json.load(open(sys.argv[1])); cur=data;
+for key in sys.argv[2].split("."):
+    if not isinstance(cur, dict) or key not in cur:
+        cur=False
+        break
+    cur=cur[key]
+print("true" if bool(cur) else "false")' "$CONFIG" "$1"
+}
+
 local_host_matches() {
   python3 -c 'import socket, sys; host=sys.argv[1]; print("yes" if host in {"localhost", "127.0.0.1", "::1", socket.gethostname(), socket.getfqdn()} else "no")' "$1"
 }
@@ -46,6 +56,9 @@ if [[ "$BUILD_UBUNTU" != "true" && "$BUILD_ALMA" != "true" ]]; then
   echo "At least one of BUILD_UBUNTU or BUILD_ALMA must be true" >&2
   exit 1
 fi
+
+LAB_ENABLED=$(config_bool lab.enabled)
+summary "- Ephemeral lab: \`$LAB_ENABLED\`"
 
 if [[ "$REFRESH_SOURCES" == "true" ]]; then
   ./scripts/release.py checkout-build --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
@@ -78,9 +91,13 @@ fi
 if [[ "$BUILD_UBUNTU" == "true" && "$BUILD_ALMA" == "true" ]]; then
   ./scripts/release.py build --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
   ./scripts/release.py collect --config "$CONFIG" --build-id "$BUILD_ID" --execute
-  ./scripts/release.py test-artifacts --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
-  ./scripts/release.py publish-staging --config "$CONFIG" --build-id "$BUILD_ID" --execute
-  ./scripts/release.py test-staging --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
+  if [[ "$LAB_ENABLED" == "true" ]]; then
+    ./scripts/release.py test-lab --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
+  else
+    ./scripts/release.py test-artifacts --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
+    ./scripts/release.py publish-staging --config "$CONFIG" --build-id "$BUILD_ID" --execute
+    ./scripts/release.py test-staging --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
+  fi
 else
   if [[ "$PROMOTE_STABLE" == "true" ]]; then
     echo "Partial candidate builds cannot be promoted to stable" >&2
@@ -89,14 +106,22 @@ else
   if [[ "$BUILD_UBUNTU" == "true" ]]; then
     ./scripts/release.py build-ubuntu --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
     ./scripts/release.py collect-ubuntu --config "$CONFIG" --build-id "$BUILD_ID" --execute
-    ./scripts/release.py test-ubuntu-artifacts --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
   fi
   if [[ "$BUILD_ALMA" == "true" ]]; then
     ./scripts/release.py build-alma --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
     ./scripts/release.py collect-alma --config "$CONFIG" --build-id "$BUILD_ID" --execute
-    ./scripts/release.py test-alma-artifacts --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
   fi
-  summary "Partial candidate completed without staging publish or storage migration gate."
+  if [[ "$LAB_ENABLED" == "true" ]]; then
+    ./scripts/release.py test-lab --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
+  else
+    if [[ "$BUILD_UBUNTU" == "true" ]]; then
+      ./scripts/release.py test-ubuntu-artifacts --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
+    fi
+    if [[ "$BUILD_ALMA" == "true" ]]; then
+      ./scripts/release.py test-alma-artifacts --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
+    fi
+    summary "Partial candidate completed without staging publish or storage migration gate."
+  fi
 fi
 
 ./scripts/write-release-evidence.py --build-id "$BUILD_ID"

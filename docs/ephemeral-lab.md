@@ -64,15 +64,18 @@ Destroy a preserved lab:
 ./scripts/lab.py destroy --config /srv/subvirt/release/lab.json --build-id <build-id> --execute
 ```
 
-To make `release.py test-staging` use the ephemeral lab, set this in the local release config:
+To make release validation use the ephemeral lab, set this in the local release config:
 
 ```json
 "lab": {
   "enabled": true,
+  "full": false,
   "host": "subvirt-build",
   "config": "/srv/subvirt/release/lab.json"
 }
 ```
+
+With `full: false`, candidate workflows create fresh Ubuntu and AlmaLinux VMs, publish a per-run repo, install the candidate packages through apt/dnf, and validate the provider service plus virt-manager integration. Set `full: true` after the TrueNAS golden-image/API setup is ready; that path also creates the TrueNAS VM and runs the storage gate.
 
 On success the lab is destroyed automatically. On failure the VMs, disks, and per-run repo are preserved and the cleanup command is printed.
 

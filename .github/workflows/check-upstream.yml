@@ -16,7 +16,7 @@ jobs:
   check:
     runs-on: [self-hosted, subvirt-build]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.0
       - name: Check local mirrors
         id: check
         shell: bash
@@ -40,7 +40,7 @@ jobs:
         run: ./scripts/lock-release-inputs.py --report upstream-report.json --github-output "$GITHUB_OUTPUT"
       - name: Create upstream refresh PR
         if: steps.check.outputs.updates_available == 'true'
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@v8.1.1
         with:
           branch: automation/upstream-libvirt-refresh
           delete-branch: true
@@ -60,12 +60,12 @@ jobs:
           BUILD_ALMA: ${{ steps.release_inputs.outputs.build_alma }}
           PROMOTE_STABLE: "false"
         run: ./scripts/run-candidate-release.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:
           name: upstream-report
           path: upstream-report.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.1
         if: always() && steps.check.outputs.updates_available == 'true'
         with:
           name: upstream-candidate-evidence-${{ steps.release_inputs.outputs.build_id }}

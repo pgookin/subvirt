@@ -33,7 +33,7 @@ jobs:
     runs-on: [self-hosted, subvirt-build]
     concurrency: subvirt-release
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.0
         with:
           ref: ${{ inputs.ref }}
       - name: Run candidate release
@@ -45,7 +45,7 @@ jobs:
           ALMA_VERSION: ${{ inputs.alma_version }}
           PROMOTE_STABLE: ${{ inputs.promote_stable }}
         run: ./scripts/run-candidate-release.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:
           name: release-evidence-${{ inputs.build_id }}

@@ -15,14 +15,14 @@ jobs:
     runs-on: [self-hosted, subvirt-build]
     concurrency: subvirt-release
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.0
       - name: Write release evidence
         run: ./scripts/write-release-evidence.py --build-id "${{ inputs.build_id }}"
       - name: Codex promotion gate
         run: ./scripts/codex-release-gate.sh "${{ inputs.build_id }}"
       - name: Promote stable
         run: ./scripts/release.py promote --config "$SUBVIRT_RELEASE_CONFIG" --build-id "${{ inputs.build_id }}" --execute
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:
           name: promotion-evidence-${{ inputs.build_id }}

@@ -9,4 +9,4 @@ install -m 0755 truenas_provider_daemon.py provider-build/deb/usr/libexec/truena
 install -m 0640 config.example.json provider-build/deb/etc/truenas-libvirt/config.json
 install -m 0644 packaging/systemd/truenas-libvirt-provider.service provider-build/deb/usr/lib/systemd/system/truenas-libvirt-provider.service
 install -m 0644 packaging/tmpfiles/truenas-libvirt-provider.conf provider-build/deb/usr/lib/tmpfiles.d/truenas-libvirt-provider.conf
-dpkg-deb --build provider-build/deb dist/truenas-libvirt-provider_0.1.0-8_all.deb
+dpkg-deb --build provider-build/deb dist/truenas-libvirt-provider_0.1.0-10_all.deb

@@ -6,7 +6,7 @@
 
 Name:           truenas-libvirt-provider
 Version:        0.1.0
-Release:        8%{?dist}
+Release:        10%{?dist}
 Summary:        TrueNAS provider daemon for libvirt storage pools
 License:        LGPL-2.1-or-later
 BuildArch:      noarch
@@ -54,7 +54,7 @@ install -m 0644 %{_sourcedir}/truenas-libvirt-provider.conf %{buildroot}%{_tmpfi
 %{_tmpfilesdir}/truenas-libvirt-provider.conf
 
 %changelog
-* Mon Jun 15 2026 subvirt local build <root@localhost> - 0.1.0-8
+* Mon Jun 15 2026 subvirt local build <root@localhost> - 0.1.0-10
 - Require local transport readiness before creating or exporting volumes.
 - Start iscsid with the provider service.
 

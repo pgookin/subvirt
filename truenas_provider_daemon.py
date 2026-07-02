@@ -441,12 +441,20 @@ class TrueNASLibvirtProvider:
             volumes = self._list_zvols(client, pool, str(transport) if transport else None)
         return {"volumes": volumes}
 
-    def pool_refresh(self, params: dict[str, Any]) -> dict[str, Any]:
-        pool = str(params["pool"])
-        transport = str(params["transport"])
-        connect = bool(params.get("connect", True))
+    @staticmethod
+    def _is_transient_truenas_error(exc: WebSocketError) -> bool:
+        message = str(exc).lower()
+        return any(
+            item in message
+            for item in (
+                "unexpected eof from websocket",
+                "websocket closed by server",
+                "truenas api connection failed",
+            )
+        )
+
+    def _pool_refresh_once(self, pool: str, transport: str, connect: bool) -> dict[str, Any]:
         refreshed = []
-        self._require_transport_ready(transport)
         with self._client() as client:
             login(client, self.config)
             self._ensure_namespace(client, pool)
@@ -465,6 +473,23 @@ class TrueNASLibvirtProvider:
                     volume["path"] = path
                 refreshed.append(volume)
         return {"pool": pool_space, "volumes": refreshed}
+
+    def pool_refresh(self, params: dict[str, Any]) -> dict[str, Any]:
+        pool = str(params["pool"])
+        transport = str(params["transport"])
+        connect = bool(params.get("connect", True))
+        self._require_transport_ready(transport)
+        last_error: WebSocketError | None = None
+        for attempt in range(2):
+            try:
+                return self._pool_refresh_once(pool, transport, connect)
+            except WebSocketError as exc:
+                if not self._is_transient_truenas_error(exc) or attempt == 1:
+                    raise
+                last_error = exc
+                time.sleep(1)
+        assert last_error is not None
+        raise last_error
 
     def vol_create(self, params: dict[str, Any]) -> dict[str, Any]:
         pool = str(params["pool"])

@@ -1,5 +1,5 @@
 Package: truenas-libvirt-provider
-Version: 0.1.0-8
+Version: 0.1.0-10
 Section: admin
 Priority: optional
 Architecture: all

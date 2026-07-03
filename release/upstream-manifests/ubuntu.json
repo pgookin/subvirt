@@ -1,0 +1,44 @@
+{
+  "distro": "ubuntu",
+  "generated_checks": [
+    {
+      "path": "build/libvirt-u24-10.0.0/debian/changelog",
+      "sha256": "92a8b9b628b1c26dce78918e8964f4c507d31f8da0ab69ac8b2475b9ae1f4f4a",
+      "size": 584590
+    }
+  ],
+  "local_version": "10.0.0-2ubuntu8.14+truenas1",
+  "package": "libvirt0",
+  "patches": [
+    {
+      "path": "patches/libvirt/truenas-storage-backend-u24.patch",
+      "sha256": "87e8d01baa702705eb6c50a9d5922762207a376dc3650d720c5f66c4a991edac",
+      "size": 23628
+    }
+  ],
+  "schema_version": 1,
+  "source_files": [
+    {
+      "path": "sources/u24/libvirt_10.0.0-2ubuntu8.14.debian.tar.xz",
+      "sha256": "7cb0f40d97d12059e2a74fea1fe28fad44b8af86211462196106aa5f0453d9ae",
+      "size": 193572
+    },
+    {
+      "path": "sources/u24/libvirt_10.0.0-2ubuntu8.14.dsc",
+      "sha256": "bf0d47050aa4fe11bbf4f1752ab746cadb4b9762ab609560839f2ec5c5e62732",
+      "size": 5625
+    },
+    {
+      "path": "sources/u24/libvirt_10.0.0.orig.tar.xz",
+      "sha256": "8ba2e72ec8bdd2418554a1474c42c35704c30174b7611eaf9a16544b71bcf00a",
+      "size": 9395076
+    },
+    {
+      "path": "sources/u24/libvirt_10.0.0.orig.tar.xz.asc",
+      "sha256": "4cdedadd6c9827d1efc7697c3ac2c2a992f161931acf107df98204e18d01bf8f",
+      "size": 833
+    }
+  ],
+  "source_metadata": "http://10.1.0.121/ubuntu/dists/noble-updates/main/binary-amd64/Packages.xz",
+  "upstream_version": "10.0.0-2ubuntu8.14"
+}

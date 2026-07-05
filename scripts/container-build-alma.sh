@@ -17,4 +17,4 @@ fi
   -v "$(pwd):/work" \
   -w /work \
   "$IMAGE" \
-  bash -lc 'dnf builddep -y build/libvirt.spec && rm -rf dist && mkdir -p dist && ./scripts/build-provider-rpm.sh && SUBVIRT_NATIVE_BUILD=1 ./scripts/build-libvirt-rpm.sh && ./scripts/build-virt-manager-rpm.sh'
+  bash -lc './scripts/refresh-locked-libvirt-sources.sh alma && dnf builddep -y build/libvirt.spec && rm -rf dist && mkdir -p dist && ./scripts/build-provider-rpm.sh && SUBVIRT_NATIVE_BUILD=1 ./scripts/build-libvirt-rpm.sh && ./scripts/build-virt-manager-rpm.sh'

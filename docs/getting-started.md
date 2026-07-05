@@ -153,15 +153,23 @@ sudo systemctl restart truenas-libvirt-provider.service
 sudo systemctl status truenas-libvirt-provider.service
 ```
 
-Run a health check:
+Run the diagnostic check:
 
 ```sh
-sudo /usr/libexec/truenas-libvirt/truenas_provider_daemon.py \
-  call health.check
+sudo /usr/libexec/truenas-libvirt/truenas_provider_daemon.py doctor
 ```
 
-The response should include `"ok": true`. If it does not, check the
-`transports` section for missing iSCSI or NVMe-oF prerequisites.
+For automation or detailed troubleshooting, use JSON output:
+
+```sh
+sudo /usr/libexec/truenas-libvirt/truenas_provider_daemon.py doctor --json
+sudo /usr/libexec/truenas-libvirt/truenas_provider_daemon.py doctor --transport iscsi
+sudo /usr/libexec/truenas-libvirt/truenas_provider_daemon.py doctor --transport nvmeof
+```
+
+The command exits successfully only when required config, TrueNAS API, and host
+transport checks pass. Storage-port reachability is reported as a warning because
+TrueNAS services may start on demand when the first export is created.
 
 ## Create a TrueNAS Storage Pool
 
@@ -236,6 +244,39 @@ sudo virsh vol-list truenas-tank-nvmeof
 sudo virsh vol-path --pool truenas-tank-nvmeof vm01-fast
 ```
 
+## Resize a Volume
+
+Subvirt supports grow-only zvol resize through libvirt. This changes the backing
+TrueNAS zvol size; it does not resize guest partitions or filesystems.
+
+```sh
+sudo virsh vol-resize --pool truenas-tank-iscsi vm01-root 128G
+sudo virsh pool-refresh truenas-tank-iscsi
+sudo virsh vol-info --pool truenas-tank-iscsi vm01-root
+```
+
+Shrinking and `--allocate` are intentionally unsupported.
+
+## Clone a Volume
+
+Subvirt supports same-pool CoW zvol clones through libvirt. Clones are fast and
+space-efficient, but TrueNAS keeps a snapshot dependency between the source and
+the clone until the dependency is removed.
+
+```sh
+sudo virsh vol-clone --pool truenas-tank-iscsi vm01-root vm01-root-copy
+sudo virsh pool-refresh truenas-tank-iscsi
+sudo virsh vol-info --pool truenas-tank-iscsi vm01-root-copy
+```
+
+Delete is strict by default. If a volume has Subvirt-managed clone snapshots,
+retry with `--delete-snapshots`; unmanaged or dependent snapshots are refused.
+
+```sh
+sudo virsh vol-delete --pool truenas-tank-iscsi vm01-root-copy
+sudo virsh vol-delete --pool truenas-tank-iscsi vm01-root --delete-snapshots
+```
+
 You can also create volumes from patched `virt-manager` after installing the
 Subvirt `virt-manager` package on the workstation that runs the UI.
 
@@ -250,7 +291,13 @@ every host.
 
 ## Troubleshooting
 
-Check the provider service:
+Run the provider diagnostic first:
+
+```sh
+sudo /usr/libexec/truenas-libvirt/truenas_provider_daemon.py doctor
+```
+
+If the provider service itself looks unhealthy, inspect systemd logs:
 
 ```sh
 sudo systemctl status truenas-libvirt-provider.service

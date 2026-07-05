@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Storage smoke tests for staging packages.
 
-This test intentionally creates uniquely named sparse zvols. Deletion is not
-required because the current TrueNAS API user may not expose dataset deletion.
+This test intentionally creates uniquely named sparse zvols. Successful full
+storage gates clean up their volumes, while failed runs leave volumes behind
+for inspection.
 """
 
 from __future__ import annotations
@@ -22,8 +23,24 @@ def run(argv: list[str]) -> str:
     return result.stdout
 
 
+def run_expect_failure(argv: list[str], expected: str | None = None) -> str:
+    print("+ " + " ".join(argv), flush=True)
+    result = subprocess.run(argv, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
+    if result.stdout:
+        print(result.stdout, end="")
+    if result.returncode == 0:
+        raise RuntimeError(f"command unexpectedly succeeded: {' '.join(argv)}")
+    if expected is not None and expected not in result.stdout:
+        raise RuntimeError(f"command failed without expected text {expected!r}: {' '.join(argv)}")
+    return result.stdout
+
+
 def virsh(*args: str) -> str:
     return run(["virsh", *args])
+
+
+def virsh_expect_failure(expected: str | None, *args: str) -> str:
+    return run_expect_failure(["virsh", *args], expected)
 
 
 def ensure_pool(name: str, xml: str) -> None:
@@ -52,7 +69,7 @@ def parse_capacity(output: str) -> int:
             parts = line.split()
             if len(parts) >= 3:
                 return int(float(parts[1]) * UNIT_BYTES[parts[2]])
-    raise RuntimeError("pool-info output did not contain Capacity")
+    raise RuntimeError("output did not contain Capacity")
 
 
 def assert_pool_capacity(pool: str, min_gib: int) -> None:
@@ -68,9 +85,39 @@ def assert_volume(pool: str, name: str) -> None:
         raise RuntimeError(f"volume {name} was not visible in pool {pool}")
 
 
+def assert_volume_missing(pool: str, name: str) -> None:
+    virsh_expect_failure(None, "vol-info", "--pool", pool, name)
+
+
 def create_volume(pool: str, name: str, size: str = "64M") -> None:
     virsh("vol-create-as", pool, name, size)
     assert_volume(pool, name)
+
+
+def resize_volume(pool: str, name: str, size: str, min_bytes: int) -> None:
+    virsh("vol-resize", "--pool", pool, name, size)
+    virsh("pool-refresh", pool)
+    out = virsh("vol-info", "--pool", pool, name)
+    capacity = parse_capacity(out)
+    if capacity < min_bytes:
+        raise RuntimeError(f"volume {name} capacity {capacity} bytes is below expected {min_bytes} bytes")
+
+
+def clone_volume(pool: str, source: str, clone: str) -> None:
+    virsh("vol-clone", "--pool", pool, source, clone)
+    virsh("pool-refresh", pool)
+    assert_volume(pool, clone)
+
+
+def delete_clone_and_source(pool: str, source: str, clone: str) -> None:
+    virsh("vol-delete", "--pool", pool, clone)
+    virsh("pool-refresh", pool)
+    assert_volume_missing(pool, clone)
+
+    virsh_expect_failure("delete-snapshots", "vol-delete", "--pool", pool, source)
+    virsh("vol-delete", "--pool", pool, "--delete-snapshots", source)
+    virsh("pool-refresh", pool)
+    assert_volume_missing(pool, source)
 
 
 def migration_smoke(domain: str, peer: str) -> None:
@@ -83,7 +130,7 @@ def migration_smoke(domain: str, peer: str) -> None:
 
 def parse_args(argv: Iterable[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--action", choices=["create", "check-peer", "migrate"], required=True)
+    parser.add_argument("--action", choices=["create", "check-peer", "delete-check", "migrate"], required=True)
     parser.add_argument("--role", choices=["ubuntu", "alma"], required=True)
     parser.add_argument("--peer", required=True)
     parser.add_argument("--build-id", required=True)
@@ -105,19 +152,32 @@ def main(argv: Iterable[str] = sys.argv[1:]) -> int:
 
     iscsi_name = f"ci-{args.build_id}-iscsi"
     nvmeof_name = f"ci-{args.build_id}-nvmeof"
+    iscsi_clone = f"ci-{args.build_id}-iscsi-clone"
+    nvmeof_clone = f"ci-{args.build_id}-nvmeof-clone"
 
     if args.action == "create":
         if args.role == "ubuntu":
             create_volume(args.iscsi_pool, iscsi_name)
+            resize_volume(args.iscsi_pool, iscsi_name, "96M", 96 * 1024**2)
+            clone_volume(args.iscsi_pool, iscsi_name, iscsi_clone)
         else:
             create_volume(args.nvmeof_pool, nvmeof_name)
+            resize_volume(args.nvmeof_pool, nvmeof_name, "96M", 96 * 1024**2)
+            clone_volume(args.nvmeof_pool, nvmeof_name, nvmeof_clone)
     elif args.action == "check-peer":
         virsh("pool-refresh", args.iscsi_pool)
         virsh("pool-refresh", args.nvmeof_pool)
         if args.role == "ubuntu":
             assert_volume(args.nvmeof_pool, nvmeof_name)
+            assert_volume(args.nvmeof_pool, nvmeof_clone)
         else:
             assert_volume(args.iscsi_pool, iscsi_name)
+            assert_volume(args.iscsi_pool, iscsi_clone)
+    elif args.action == "delete-check":
+        if args.role == "ubuntu":
+            delete_clone_and_source(args.iscsi_pool, iscsi_name, iscsi_clone)
+        else:
+            delete_clone_and_source(args.nvmeof_pool, nvmeof_name, nvmeof_clone)
     elif args.action == "migrate":
         migration_smoke(args.migration_domain, args.peer)
     return 0

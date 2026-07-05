@@ -383,6 +383,14 @@ def run_storage_gate(ctx: Context) -> None:
         f"cd {q(p['workdir'])}",
         f"./scripts/test-storage.py --action check-peer --role alma --peer {q(ubuntu)} {base}",
     ])
+    ubuntu_delete_check = " && ".join([
+        f"cd {q(p['workdir'])}",
+        f"./scripts/test-storage.py --action delete-check --role ubuntu --peer {q(alma)} {base}",
+    ])
+    alma_delete_check = " && ".join([
+        f"cd {q(p['workdir'])}",
+        f"./scripts/test-storage.py --action delete-check --role alma --peer {q(ubuntu)} {base}",
+    ])
     migration = " && ".join([
         f"cd {q(p['workdir'])}",
         f"./scripts/test-storage.py --action migrate --role ubuntu --peer {q(alma)} {base}",
@@ -391,6 +399,8 @@ def run_storage_gate(ctx: Context) -> None:
     remote(alma, alma_create, ctx)
     remote(ubuntu, ubuntu_check, ctx)
     remote(alma, alma_check, ctx)
+    remote(ubuntu, ubuntu_delete_check, ctx)
+    remote(alma, alma_delete_check, ctx)
     if tests(ctx).get("run_migration", bool(tests(ctx).get("migration_domain"))):
         remote(ubuntu, migration, ctx)
 
@@ -436,16 +446,23 @@ def artifact_stage_dir(ctx: Context, distro: str) -> str:
     return f"/tmp/subvirt-artifacts/{test_id(ctx)}/{distro}"
 
 
+def scp_args(config: dict) -> list[str]:
+    return ["scp", *ssh_args(config)[1:]]
+
+
 def copy_artifacts_to_test_host(ctx: Context, distro: str, target: str, pattern: str) -> None:
     build_host = hosts(ctx)["build"]
     stage_dir = artifact_stage_dir(ctx, distro)
     remote(target, f"install -d -m 0755 {q(stage_dir)}", ctx)
     if is_local_host(build_host):
-        command = f"scp {q(artifact_dir(ctx, distro))}/{pattern} {q(f'{target}:{stage_dir}/')}"
-        run(["bash", "-lc", command], ctx)
+        run([
+            *scp_args(ctx.config),
+            *sorted(str(path) for path in Path(artifact_dir(ctx, distro)).glob(pattern)),
+            f"{target}:{stage_dir}/",
+        ], ctx)
     else:
         run([
-            "scp",
+            *scp_args(ctx.config),
             "-3",
             f"{build_host}:{artifact_dir(ctx, distro)}/{pattern}",
             f"{target}:{stage_dir}/",
@@ -484,7 +501,7 @@ def service_validation_command() -> str:
         "systemctl is-active truenas-libvirt-provider.service",
         "for i in $(seq 1 20); do test -S /run/truenas-libvirt/provider.sock && break; sleep 0.25; done",
         "test -S /run/truenas-libvirt/provider.sock",
-        "/usr/libexec/truenas-libvirt/truenas_provider_daemon.py call health.check '{}'",
+        "/usr/libexec/truenas-libvirt/truenas_provider_daemon.py doctor --json",
         "test -n \"$(find /usr/lib /usr/lib64 -name libvirt_storage_backend_truenas.so -print -quit 2>/dev/null)\"",
         "virsh pool-capabilities | grep \"type='truenas'\"",
     ])
@@ -501,6 +518,7 @@ def install_ubuntu_artifacts(ctx: Context) -> None:
         "test -n \"$packages\"",
         "apt-get update",
         "DEBIAN_FRONTEND=noninteractive apt-get install -y --allow-downgrades -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold $packages",
+        "DEBIAN_FRONTEND=noninteractive dpkg -i --force-confdef --force-confold $packages",
         service_validation_command(),
         virt_manager_validation_command(),
     ])
@@ -516,7 +534,8 @@ def install_alma_artifacts(ctx: Context) -> None:
         f"cd {q(stage_dir)}",
         package_filter,
         "test -n \"$packages\"",
-        "dnf install -y $packages",
+        "dnf --disablerepo='subvirt-*' install -y $packages",
+        "rpm -Uvh --replacepkgs $packages",
         service_validation_command(),
         virt_manager_validation_command(),
     ])

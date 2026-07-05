@@ -18,4 +18,4 @@ fi
   -v "$(pwd):/work" \
   -w /work \
   "$IMAGE" \
-  bash -lc 'apt-get update && mk-build-deps -i -r -t "apt-get -y --no-install-recommends" "$SUBVIRT_UBUNTU_LIBVIRT_SRC/debian/control" && rm -rf dist && mkdir -p dist && ./scripts/build-provider-deb.sh && SUBVIRT_NATIVE_BUILD=1 ./scripts/build-libvirt-deb.sh && ./scripts/build-virt-manager-deb.sh'
+  bash -lc './scripts/refresh-locked-libvirt-sources.sh ubuntu && apt-get update && mk-build-deps -i -r -t "apt-get -y --no-install-recommends" "$SUBVIRT_UBUNTU_LIBVIRT_SRC/debian/control" && rm -rf dist && mkdir -p dist && ./scripts/build-provider-deb.sh && SUBVIRT_NATIVE_BUILD=1 ./scripts/build-libvirt-deb.sh && ./scripts/build-virt-manager-deb.sh'

@@ -104,7 +104,7 @@ The bootstrap installs Podman and baseline host tools. Build dependencies belong
 
 ## Direct Artifact Test
 
-`test-artifacts` installs packages directly from the build VM artifact directory onto the two test VMs before anything is published. It copies packages from `/srv/subvirt/artifacts/<build-id>/ubuntu` and `/srv/subvirt/artifacts/<build-id>/alma` into `/tmp/subvirt-artifacts/<test-id>/...` on each test host, installs them with apt/dnf, restarts the provider and libvirt storage daemon, checks `health.check`, verifies the `truenas` storage backend is visible in `virsh pool-capabilities`, verifies patched virt-manager reports `truenas` pools as volume-creation capable, then runs the storage gate.
+`test-artifacts` installs packages directly from the build VM artifact directory onto the two test VMs before anything is published. It copies packages from `/srv/subvirt/artifacts/<build-id>/ubuntu` and `/srv/subvirt/artifacts/<build-id>/alma` into `/tmp/subvirt-artifacts/<test-id>/...` on each test host, installs them with apt/dnf, restarts the provider and libvirt storage daemon, runs `doctor --json`, verifies the `truenas` storage backend is visible in `virsh pool-capabilities`, verifies patched virt-manager reports `truenas` pools as volume-creation capable, then runs the storage gate.
 
 This is the fast confidence gate for the lab workflow. Staging repo tests still matter later because they verify package-manager repo behavior, signing, and dependency resolution from published metadata.
 
@@ -169,12 +169,13 @@ There is no expected webhook-style event from Ubuntu or AlmaLinux for new libvir
 - `truenas` pool support appears in libvirt.
 - iSCSI and NVMe-oF pools define/start/refresh.
 - Pool capacity reports managed-dataset space, not summed zvol sizes.
-- Ubuntu creates an iSCSI test volume.
-- AlmaLinux creates an NVMe-oF test volume.
-- Each host refreshes and sees the other host's volume.
+- Ubuntu creates, resizes, clones, and delete-validates an iSCSI test volume.
+- AlmaLinux creates, resizes, clones, and delete-validates an NVMe-oF test volume.
+- Each host refreshes and sees the other host's source and clone volumes before cleanup.
+- Source volume deletion fails without `--delete-snapshots` and succeeds with it after the clone is removed.
 - A configured throwaway VM live-migrates to the peer host when `tests.run_migration` is true.
 
-The test script creates unique volume names containing the test ID. By default the test ID is the build ID, but `--test-id` can override it when rerunning tests against the same artifact directory. Cleanup is intentionally not required until TrueNAS dataset deletion is available to the API user.
+The test script creates unique volume names containing the test ID. By default the test ID is the build ID, but `--test-id` can override it when rerunning tests against the same artifact directory. Successful full storage gates clean up their test volumes; failed runs leave volumes behind for inspection.
 
 Set `tests.run_migration` to `true` once `tests.migration_domain` names a throwaway VM that exists on the Ubuntu test host and can live-migrate to the AlmaLinux test host.
 

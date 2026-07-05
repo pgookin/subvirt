@@ -214,7 +214,7 @@ new file mode 100644
 index 0000000..4594727
 --- /dev/null
 +++ b/src/storage/storage_backend_truenas.c
-@@ -0,0 +1,406 @@
+@@ -0,0 +1,510 @@
 +/*
 + * storage_backend_truenas.c: storage backend for TrueNAS provider daemon
 + */
@@ -414,6 +414,7 @@ index 0000000..4594727
 +
 +    vol->name = g_strdup(name);
 +    vol->type = VIR_STORAGE_VOL_BLOCK;
++    vol->target.format = VIR_STORAGE_FILE_RAW;
 +
 +    if (virJSONValueObjectGetNumberUlong(item, "capacity", &capacity) == 0)
 +        vol->target.capacity = capacity;
@@ -582,6 +583,105 @@ index 0000000..4594727
 +    VIR_FREE(vol->key);
 +    vol->key = g_strdup(vol->target.path);
 +    vol->type = VIR_STORAGE_VOL_BLOCK;
++    vol->target.format = VIR_STORAGE_FILE_RAW;
++
++    return 0;
++}
++
++static int
++virStorageBackendTrueNASBuildVolFrom(virStoragePoolObj *pool,
++                                     virStorageVolDef *newvol,
++                                     virStorageVolDef *origvol,
++                                     unsigned int flags)
++{
++    virStoragePoolDef *def = virStoragePoolObjGetDef(pool);
++    g_autoptr(virJSONValue) params = virJSONValueNewObject();
++    g_autoptr(virJSONValue) result = NULL;
++    const char *path = NULL;
++    unsigned long long resultCapacity = 0;
++    unsigned long long resultAllocation = 0;
++
++    virCheckFlags(0, -1);
++
++    if (virStorageBackendTrueNASValidate(def) < 0)
++        return -1;
++
++    if (virStorageBackendTrueNASAppendCommonParams(params, def) < 0 ||
++        virJSONValueObjectAppendString(params, "source", origvol->name) < 0 ||
++        virJSONValueObjectAppendString(params, "target", newvol->name) < 0 ||
++        virJSONValueObjectAppendBoolean(params, "replace_existing", true) < 0)
++        return -1;
++
++    if (!(result = virStorageBackendTrueNASCall("vol.clone", &params)))
++        return -1;
++
++    if ((path = virJSONValueObjectGetString(result, "path"))) {
++        VIR_FREE(newvol->target.path);
++        newvol->target.path = g_strdup(path);
++        VIR_FREE(newvol->key);
++        newvol->key = g_strdup(newvol->target.path);
++    }
++
++    if (virJSONValueObjectGetNumberUlong(result, "capacity", &resultCapacity) == 0)
++        newvol->target.capacity = resultCapacity;
++    if (virJSONValueObjectGetNumberUlong(result, "allocation", &resultAllocation) == 0)
++        newvol->target.allocation = resultAllocation;
++
++    newvol->type = VIR_STORAGE_VOL_BLOCK;
++    newvol->target.format = VIR_STORAGE_FILE_RAW;
++    return 0;
++}
++
++static int
++virStorageBackendTrueNASResizeVol(virStoragePoolObj *pool,
++                                  virStorageVolDef *vol,
++                                  unsigned long long capacity,
++                                  unsigned int flags)
++{
++    virStoragePoolDef *def = virStoragePoolObjGetDef(pool);
++    g_autoptr(virJSONValue) params = virJSONValueNewObject();
++    g_autoptr(virJSONValue) result = NULL;
++    unsigned long long resultCapacity = 0;
++    unsigned long long resultAllocation = 0;
++
++    if (flags & VIR_STORAGE_VOL_RESIZE_ALLOCATE) {
++        virReportError(VIR_ERR_CONFIG_UNSUPPORTED, "%s",
++                       _("TrueNAS volumes do not support resize allocation"));
++        return -1;
++    }
++
++    if (flags & VIR_STORAGE_VOL_RESIZE_SHRINK) {
++        virReportError(VIR_ERR_CONFIG_UNSUPPORTED, "%s",
++                       _("TrueNAS volumes do not support shrinking"));
++        return -1;
++    }
++
++    virCheckFlags(0, -1);
++
++    if (capacity < vol->target.capacity) {
++        virReportError(VIR_ERR_CONFIG_UNSUPPORTED, "%s",
++                       _("TrueNAS volume resize is grow-only"));
++        return -1;
++    }
++
++    if (virStorageBackendTrueNASValidate(def) < 0)
++        return -1;
++
++    if (virStorageBackendTrueNASAppendCommonParams(params, def) < 0 ||
++        virJSONValueObjectAppendString(params, "name", vol->name) < 0 ||
++        virJSONValueObjectAppendNumberUlong(params, "capacity", capacity) < 0)
++        return -1;
++
++    if (!(result = virStorageBackendTrueNASCall("vol.resize", &params)))
++        return -1;
++
++    if (virJSONValueObjectGetNumberUlong(result, "capacity", &resultCapacity) == 0)
++        vol->target.capacity = resultCapacity;
++    else
++        vol->target.capacity = capacity;
++
++    if (virJSONValueObjectGetNumberUlong(result, "allocation", &resultAllocation) == 0)
++        vol->target.allocation = resultAllocation;
 +
 +    return 0;
 +}
@@ -594,11 +694,13 @@ index 0000000..4594727
 +    virStoragePoolDef *def = virStoragePoolObjGetDef(pool);
 +    g_autoptr(virJSONValue) params = virJSONValueNewObject();
 +    g_autoptr(virJSONValue) result = NULL;
++    bool deleteSnapshots = !!(flags & VIR_STORAGE_VOL_DELETE_WITH_SNAPSHOTS);
 +
-+    virCheckFlags(0, -1);
++    virCheckFlags(VIR_STORAGE_VOL_DELETE_WITH_SNAPSHOTS, -1);
 +
 +    if (virStorageBackendTrueNASAppendCommonParams(params, def) < 0 ||
-+        virJSONValueObjectAppendString(params, "name", vol->name) < 0)
++        virJSONValueObjectAppendString(params, "name", vol->name) < 0 ||
++        virJSONValueObjectAppendBoolean(params, "delete_snapshots", deleteSnapshots) < 0)
 +        return -1;
 +
 +    if (!(result = virStorageBackendTrueNASCall("vol.delete", &params)))
@@ -613,7 +715,9 @@ index 0000000..4594727
 +    .startPool = virStorageBackendTrueNASStartPool,
 +    .refreshPool = virStorageBackendTrueNASRefreshPool,
 +    .createVol = virStorageBackendTrueNASCreateVol,
++    .buildVolFrom = virStorageBackendTrueNASBuildVolFrom,
 +    .deleteVol = virStorageBackendTrueNASDeleteVol,
++    .resizeVol = virStorageBackendTrueNASResizeVol,
 +};
 +
 +int

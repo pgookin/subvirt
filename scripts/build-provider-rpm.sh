@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 export RPM_ARCH=${RPM_ARCH:-$(rpm --eval "%{_arch}")}
+rm -rf provider-build/rpmbuild
 mkdir -p provider-build/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS} dist
+rm -f dist/truenas-libvirt-provider-*.rpm
 cp truenas_provider.py truenas_provider_daemon.py config.example.json provider-build/rpmbuild/SOURCES/
 cp packaging/systemd/truenas-libvirt-provider.service provider-build/rpmbuild/SOURCES/
 cp packaging/tmpfiles/truenas-libvirt-provider.conf provider-build/rpmbuild/SOURCES/

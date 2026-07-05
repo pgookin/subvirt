@@ -371,7 +371,7 @@ class TrueNASLibvirtProvider:
                     except WebSocketError:
                         pass
                     raise ProviderError("clone_failed", f"failed to clone {snapshot_id} to {target_zvol}: {first_exc}", {"source": source_zvol, "target": target_zvol, "snapshot": snapshot_id}) from None
-        row = self._wait_for_zvol(client, pool, target)
+        self._wait_for_zvol(client, pool, target)
         try:
             client.call(
                 "pool.dataset.update",
@@ -379,7 +379,7 @@ class TrueNASLibvirtProvider:
                     target_zvol,
                     {
                         "managedby": "truenas-libvirt-provider",
-                        "user_properties": [
+                        "user_properties_update": [
                             {"key": "org.libvirt:managed", "value": "true"},
                             {"key": "org.libvirt:transport", "value": transport},
                             {"key": "org.libvirt:clone-source", "value": source_zvol},
@@ -388,9 +388,9 @@ class TrueNASLibvirtProvider:
                     },
                 ],
             )
-        except WebSocketError:
-            pass
-        return row
+        except WebSocketError as exc:
+            raise ProviderError("clone_metadata_failed", f"failed to tag cloned zvol {target_zvol}: {exc}", {"target": target_zvol, "transport": transport}) from None
+        return self._get_zvol(client, pool, target)
 
     def _list_zvols(self, client: JsonRpcWebSocket, pool: str, transport: str | None = None) -> list[dict[str, Any]]:
         prefix = managed_dataset_name(pool, self.config) + "/"

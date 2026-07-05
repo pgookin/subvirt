@@ -214,7 +214,7 @@ new file mode 100644
 index 0000000..4594727
 --- /dev/null
 +++ b/src/storage/storage_backend_truenas.c
-@@ -0,0 +1,510 @@
+@@ -0,0 +1,513 @@
 +/*
 + * storage_backend_truenas.c: storage backend for TrueNAS provider daemon
 + */
@@ -312,8 +312,8 @@ index 0000000..4594727
 +    g_autoptr(virJSONValue) response = NULL;
 +    virJSONValue *result = NULL;
 +    virJSONValue *error = NULL;
-+    g_autoptr(GString) responsebuf = g_string_new(NULL);
-+    g_autofree char *buf = g_new0(char, 4096);
++    g_autofree char *responsebuf = g_new0(char, 1024 * 1024 + 1);
++    size_t responselen = 0;
 +    ssize_t got;
 +
 +    if (!request)
@@ -337,22 +337,25 @@ index 0000000..4594727
 +        return NULL;
 +    }
 +
-+    while (true) {
-+        got = read(fd, buf, 4096);
++    while (responselen < 1024 * 1024) {
++        got = read(fd, responsebuf + responselen, 1024 * 1024 - responselen);
 +        if (got < 0 && errno == EINTR)
 +            continue;
 +        if (got <= 0)
 +            break;
 +
-+        if (responsebuf->len + got > 1024 * 1024) {
-+            virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
-+                           _("TrueNAS provider response is too large"));
-+            return NULL;
++        if (memchr(responsebuf + responselen, '\n', got)) {
++            responselen += got;
++            break;
 +        }
 +
-+        g_string_append_len(responsebuf, buf, got);
-+        if (memchr(buf, '\n', got))
-+            break;
++        responselen += got;
++    }
++
++    if (responselen >= 1024 * 1024) {
++        virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
++                       _("TrueNAS provider response is too large"));
++        return NULL;
 +    }
 +
 +    if (got < 0) {
@@ -360,13 +363,13 @@ index 0000000..4594727
 +        return NULL;
 +    }
 +
-+    if (!responsebuf->len) {
++    if (!responselen) {
 +        virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
 +                       _("empty response from TrueNAS provider"));
 +        return NULL;
 +    }
 +
-+    responsestr = g_string_free(g_steal_pointer(&responsebuf), false);
++    responsestr = g_steal_pointer(&responsebuf);
 +
 +    if (!(response = virJSONValueFromString(responsestr))) {
 +        virReportError(VIR_ERR_INTERNAL_ERROR, "%s", _("invalid JSON from TrueNAS provider"));

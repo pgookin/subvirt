@@ -24,6 +24,10 @@ on:
         description: Run Codex gate and publish to public stable after tests pass
         required: false
         default: "true"
+      build_scope:
+        description: Build scope: full or provider
+        required: false
+        default: "full"
 
 env:
   SUBVIRT_RELEASE_CONFIG: ${{ vars.SUBVIRT_RELEASE_CONFIG || '/srv/subvirt/release/release.json' }}
@@ -44,6 +48,7 @@ jobs:
           UBUNTU_VERSION: ${{ inputs.ubuntu_version }}
           ALMA_VERSION: ${{ inputs.alma_version }}
           PROMOTE_STABLE: ${{ inputs.promote_stable }}
+          BUILD_SCOPE: ${{ inputs.build_scope }}
         run: ./scripts/run-candidate-release.sh
       - uses: actions/upload-artifact@v7.0.1
         if: always()

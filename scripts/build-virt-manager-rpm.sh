@@ -66,8 +66,10 @@ with tempfile.TemporaryDirectory() as tmpdir:
     )
     (sources / "subvirt-truenas-volume-creation.patch").write_text(patch.stdout)
 PYGENPATCH
+export SUBVIRT_ALMA_VIRT_MANAGER_REVISION=$(./scripts/subvirt_versions.py alma-virt-manager-revision)
 python3 - "$SPEC" <<'PY'
 from pathlib import Path
+import os
 import re
 import sys
 
@@ -89,11 +91,13 @@ match = release_re.search(text)
 if not match:
     raise SystemExit("could not find Release tag")
 release = match.group(2)
-if ".truenas1" not in release:
+revision = os.environ["SUBVIRT_ALMA_VIRT_MANAGER_REVISION"]
+suffix = f".truenas{revision}"
+if suffix not in release:
     if "%{?dist}" in release:
-        release = release.replace("%{?dist}", ".truenas1%{?dist}", 1)
+        release = release.replace("%{?dist}", f"{suffix}%{{?dist}}", 1)
     else:
-        release = release + ".truenas1"
+        release = release + suffix
     text = text[:match.start(2)] + release + text[match.end(2):]
 
 spec.write_text(text)

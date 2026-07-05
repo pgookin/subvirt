@@ -203,6 +203,41 @@ def build_alma(ctx: Context) -> None:
     remote(host, command, ctx)
 
 
+def build_ubuntu_provider(ctx: Context) -> None:
+    host = hosts(ctx)["build"]
+    p = project(ctx)
+    workdir = p["workdir"]
+    out_dir = artifact_dir(ctx, "ubuntu")
+    remote_checkout(ctx, host)
+    command = " && ".join([
+        f"install -d -m 0755 {q(out_dir)}",
+        f"cd {q(workdir)}",
+        "./scripts/container-build-provider-ubuntu.sh",
+        f"find dist -maxdepth 1 -type f -name 'truenas-libvirt-provider_*.deb' -exec cp -a {{}} {q(out_dir)}/ \\;",
+    ])
+    remote(host, command, ctx)
+
+
+def build_alma_provider(ctx: Context) -> None:
+    host = hosts(ctx)["build"]
+    p = project(ctx)
+    workdir = p["workdir"]
+    out_dir = artifact_dir(ctx, "alma")
+    remote_checkout(ctx, host)
+    command = " && ".join([
+        f"install -d -m 0755 {q(out_dir)}",
+        f"cd {q(workdir)}",
+        "./scripts/container-build-provider-alma.sh",
+        f"find dist -maxdepth 1 -type f -name 'truenas-libvirt-provider-*.rpm' -exec cp -a {{}} {q(out_dir)}/ \\;",
+    ])
+    remote(host, command, ctx)
+
+
+def build_provider(ctx: Context) -> None:
+    build_ubuntu_provider(ctx)
+    build_alma_provider(ctx)
+
+
 def collect_artifact(ctx: Context, distro: str) -> None:
     p = project(ctx)
     local = Path("artifacts") / ctx.build_id
@@ -579,6 +614,9 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
         "build",
         "build-ubuntu",
         "build-alma",
+        "build-provider",
+        "build-ubuntu-provider",
+        "build-alma-provider",
         "collect",
         "collect-ubuntu",
         "collect-alma",
@@ -609,6 +647,9 @@ def main(argv: Iterable[str] = sys.argv[1:]) -> int:
         "build": lambda: (build_ubuntu(ctx), build_alma(ctx)),
         "build-ubuntu": lambda: build_ubuntu(ctx),
         "build-alma": lambda: build_alma(ctx),
+        "build-provider": lambda: build_provider(ctx),
+        "build-ubuntu-provider": lambda: build_ubuntu_provider(ctx),
+        "build-alma-provider": lambda: build_alma_provider(ctx),
         "collect": lambda: collect_artifacts(ctx),
         "collect-ubuntu": lambda: collect_artifact(ctx, "ubuntu"),
         "collect-alma": lambda: collect_artifact(ctx, "alma"),

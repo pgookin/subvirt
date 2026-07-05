@@ -29,6 +29,21 @@ The durable source inputs are:
 
 Generated paths such as `build/`, `sources/`, `dist/`, `provider-build/`, `work-clean/`, and `work-patchgen/` are intentionally ignored.
 
+
+## Version Manifest
+
+`release/subvirt-version.json` is the committed version source of truth. It tracks the Subvirt project version, the independent `truenas-libvirt-provider` package version/release, and the local `truenasN` package revision used for each distro libvirt and virt-manager rebuild.
+
+Use `scripts/bump-version.py` for intentional feature/version changes. Typical examples:
+
+```sh
+./scripts/bump-version.py --subvirt-version 0.3.0 --provider-version 0.3.0 --provider-release 1
+./scripts/bump-version.py --provider-release 2
+./scripts/bump-version.py --ubuntu-virt-manager-revision 2 --alma-virt-manager-revision 2
+```
+
+When the upstream libvirt checker detects a new parent package, `scripts/update-upstream-lock.py` resets only the affected distro libvirt local revision to `1`. Provider and virt-manager versions are not changed by upstream libvirt polling. If a Subvirt patch needs another rebuild against the same parent package, bump that distro's libvirt local revision explicitly.
+
 ## Upstream Tracking
 
 `scripts/check-upstream.py` compares the current mirror metadata against `release/upstream-lock.json`. GitHub Actions runs this check every 8 hours, matching the local mirror sync cadence. The script exits with code `10` when a newer libvirt package is available and writes a JSON report suitable for workflow artifacts.
@@ -71,6 +86,15 @@ Use `--test-id` to rerun storage tests against the same artifact directory witho
 ./scripts/release.py test-artifacts --config release/release.json --build-id 0.1.0-1 --test-id 0.1.0-1-rerun1 --execute
 ```
 
+
+Run a provider-only release candidate when only `truenas-libvirt-provider` changed:
+
+```sh
+BUILD_ID=0.2.1-provider-1 BUILD_SCOPE=provider PROMOTE_STABLE=false ./scripts/run-candidate-release.sh
+```
+
+Provider-only candidates build the Ubuntu and Alma provider packages, install them on the existing test hosts, publish to the private staging repo, and run the same storage gate. Set `PROMOTE_STABLE=true` only when that provider build should be published to the public stable repository.
+
 ## Build Helpers
 
 The orchestrator calls these project-local wrapper scripts on the build host:
@@ -89,6 +113,8 @@ Then they run the existing package helpers inside the matching distro container:
 
 - Ubuntu: `scripts/build-provider-deb.sh`, `scripts/build-libvirt-deb.sh`, and `scripts/build-virt-manager-deb.sh`
 - AlmaLinux: `scripts/build-provider-rpm.sh`, `scripts/build-libvirt-rpm.sh`, and `scripts/build-virt-manager-rpm.sh`
+
+Provider-only candidates use `scripts/container-build-provider-ubuntu.sh` and `scripts/container-build-provider-alma.sh`, which run only the provider package helpers inside the same distro containers.
 
 The current container mode uses native package builds inside the pinned distro images. This is intentional for the prototype release pipeline. If stricter distro-policy isolation becomes necessary, the wrapper scripts can later grow `sbuild` or `mock` modes without changing the outer release flow.
 

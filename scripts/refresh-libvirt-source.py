@@ -21,6 +21,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from subvirt_versions import alma_libvirt_release, load_manifest, ubuntu_libvirt_version
+
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "build"
 SOURCES = ROOT / "sources"
@@ -191,7 +193,7 @@ def download_ubuntu_source_files(version: str, config_path: Path, out: Path) -> 
 def prepend_debian_changelog(src: Path, base_version: str) -> None:
     changelog = src / "debian" / "changelog"
     old = changelog.read_text(encoding="utf-8")
-    version = base_version if base_version.endswith("+truenas1") else f"{base_version}+truenas1"
+    version = ubuntu_libvirt_version(base_version, load_manifest())
     entry = f"""libvirt ({version}) noble; urgency=medium
 
   * Local build: add TrueNAS provider-backed storage pool backend.
@@ -277,8 +279,7 @@ def rpm_source_path(version: str) -> Path:
 
 def spec_set_truenas_release(spec: Path, version: str) -> None:
     text = spec.read_text(encoding="utf-8")
-    wanted = version.split("-", 1)[1]
-    wanted = wanted if wanted.endswith(".truenas1") else f"{wanted}.truenas1"
+    wanted = alma_libvirt_release(version, load_manifest())
     text = re.sub(r"^Release:\s*.*$", f"Release: {wanted}", text, count=1, flags=re.M)
     spec.write_text(text, encoding="utf-8")
 

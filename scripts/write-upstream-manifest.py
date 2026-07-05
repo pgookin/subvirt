@@ -10,6 +10,8 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 
+from subvirt_versions import alma_libvirt_release, load_manifest, ubuntu_libvirt_version
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -94,10 +96,11 @@ def sanitize_source_metadata(value: str) -> str:
 
 
 def local_version(distro: str, version: str) -> str:
+    manifest = load_manifest()
     if distro == "ubuntu":
-        return version if version.endswith("+truenas1") else f"{version}+truenas1"
-    release = version.split("-", 1)[1]
-    return version if release.endswith(".truenas1") else f"{version}.truenas1"
+        return ubuntu_libvirt_version(version, manifest)
+    parent_version = version.split("-", 1)[0]
+    return f"{parent_version}-{alma_libvirt_release(version, manifest)}"
 
 
 def changed_rows(report: dict[str, Any], changed_only: bool) -> list[dict[str, Any]]:

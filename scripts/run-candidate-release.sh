@@ -10,6 +10,7 @@ ALMA_VERSION=${ALMA_VERSION:-}
 PROMOTE_STABLE=${PROMOTE_STABLE:-false}
 BUILD_UBUNTU=${BUILD_UBUNTU:-true}
 BUILD_ALMA=${BUILD_ALMA:-true}
+BUILD_SCOPE=${BUILD_SCOPE:-full}
 
 summary() {
   if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
@@ -26,6 +27,7 @@ summary "- Alma version: \`${ALMA_VERSION:-not set}\`"
 summary "- Promote stable: \`$PROMOTE_STABLE\`"
 summary "- Build Ubuntu: \`$BUILD_UBUNTU\`"
 summary "- Build Alma: \`$BUILD_ALMA\`"
+summary "- Build scope: \`$BUILD_SCOPE\`"
 
 remote_quote() {
   python3 -c 'import shlex, sys; print(shlex.quote(sys.argv[1]))' "$1"
@@ -52,8 +54,21 @@ local_host_matches() {
   python3 -c 'import socket, sys; host=sys.argv[1]; print("yes" if host in {"localhost", "127.0.0.1", "::1", socket.gethostname(), socket.getfqdn()} else "no")' "$1"
 }
 
-if [[ "$BUILD_UBUNTU" != "true" && "$BUILD_ALMA" != "true" ]]; then
+case "$BUILD_SCOPE" in
+  full|provider) ;;
+  *)
+    echo "BUILD_SCOPE must be full or provider" >&2
+    exit 1
+    ;;
+esac
+
+if [[ "$BUILD_SCOPE" == "full" && "$BUILD_UBUNTU" != "true" && "$BUILD_ALMA" != "true" ]]; then
   echo "At least one of BUILD_UBUNTU or BUILD_ALMA must be true" >&2
+  exit 1
+fi
+
+if [[ "$BUILD_SCOPE" == "provider" && "$REFRESH_SOURCES" == "true" ]]; then
+  echo "Provider-only candidate builds cannot refresh libvirt sources" >&2
   exit 1
 fi
 
@@ -88,7 +103,17 @@ if [[ "$REFRESH_SOURCES" == "true" ]]; then
   fi
 fi
 
-if [[ "$BUILD_UBUNTU" == "true" && "$BUILD_ALMA" == "true" ]]; then
+if [[ "$BUILD_SCOPE" == "provider" ]]; then
+  ./scripts/release.py build-provider --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
+  ./scripts/release.py collect --config "$CONFIG" --build-id "$BUILD_ID" --execute
+  if [[ "$LAB_ENABLED" == "true" ]]; then
+    ./scripts/release.py test-lab --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
+  else
+    ./scripts/release.py test-artifacts --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
+    ./scripts/release.py publish-staging --config "$CONFIG" --build-id "$BUILD_ID" --execute
+    ./scripts/release.py test-staging --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
+  fi
+elif [[ "$BUILD_UBUNTU" == "true" && "$BUILD_ALMA" == "true" ]]; then
   ./scripts/release.py build --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
   ./scripts/release.py collect --config "$CONFIG" --build-id "$BUILD_ID" --execute
   if [[ "$LAB_ENABLED" == "true" ]]; then

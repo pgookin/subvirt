@@ -40,7 +40,7 @@ jobs:
           exit "$rc"
       - name: Update upstream lock
         if: steps.check.outputs.updates_available == 'true'
-        run: ./scripts/update-upstream-lock.py --report upstream-report.json --lock release/upstream-lock.json
+        run: ./scripts/update-upstream-lock.py --report upstream-report.json --lock release/upstream-lock.json --version-manifest release/subvirt-version.json
       - name: Derive candidate release inputs
         if: steps.check.outputs.updates_available == 'true'
         id: release_inputs
@@ -75,6 +75,7 @@ jobs:
           body-path: upstream-report.json
           add-paths: |
             release/upstream-lock.json
+            release/subvirt-version.json
             release/upstream-manifests/**
       - name: Run trusted candidate release without stable promotion
         if: steps.check.outputs.updates_available == 'true' && steps.refresh_pr.outputs.pull-request-number != ''

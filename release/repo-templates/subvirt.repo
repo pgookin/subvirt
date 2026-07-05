@@ -1,15 +1,7 @@
 [subvirt-stable]
 name=Subvirt stable packages
-baseurl=https://repo.example.com/yum/almalinux/10/stable
+baseurl=https://repo.subvirt.net/yum/almalinux/10/stable
 enabled=1
 gpgcheck=1
 repo_gpgcheck=1
-gpgkey=https://repo.example.com/keys/subvirt.asc
-
-[subvirt-staging]
-name=Subvirt staging packages
-enabled=0
-baseurl=https://repo.example.com/yum/almalinux/10/staging
-gpgcheck=1
-repo_gpgcheck=1
-gpgkey=https://repo.example.com/keys/subvirt.asc
+gpgkey=https://repo.subvirt.net/keys/subvirt.asc

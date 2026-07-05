@@ -13,6 +13,8 @@ import shlex
 import socket
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -103,6 +105,10 @@ def hosts(ctx: Context) -> dict:
 
 def repos(ctx: Context) -> dict:
     return ctx.config["repos"]
+
+
+def public_repo(ctx: Context) -> dict:
+    return ctx.config.get("public_repo", {})
 
 
 def tests(ctx: Context) -> dict:
@@ -230,6 +236,105 @@ def publish_staging(ctx: Context) -> None:
         f"--yum-distro-path {q(r.get('yum_distro_path', 'almalinux/10'))}",
     ])
     remote(repo_host, command, ctx)
+
+
+def public_repo_config(ctx: Context) -> dict:
+    r = repos(ctx)
+    public = public_repo(ctx)
+    return {
+        "host": public.get("host", hosts(ctx).get("public_repo")),
+        "incoming_root": public.get("incoming_root", "/srv/subvirt/incoming"),
+        "web_root": public.get("web_root", r["web_root"]),
+        "apt_distribution": public.get("apt_distribution", r["apt_distribution"]),
+        "yum_distro_path": public.get("yum_distro_path", r.get("yum_distro_path", "almalinux/10")),
+        "base_url": public.get("base_url", "https://repo.subvirt.net").rstrip("/"),
+        "gpg_name": public.get("gpg_name", "Subvirt Repository <repo@subvirt.net>"),
+        "publish_script": public.get("publish_script", "/usr/local/libexec/subvirt/publish-repo.py"),
+    }
+
+
+def require_public_repo(ctx: Context) -> dict:
+    public = public_repo_config(ctx)
+    if not public.get("host"):
+        raise SystemExit("public_repo.host or hosts.public_repo is required")
+    return public
+
+
+def artifact_files(ctx: Context, distro: str, suffix: str) -> list[Path]:
+    root = Path("artifacts") / ctx.build_id / distro
+    if not root.exists():
+        return []
+    return sorted(path for path in root.iterdir() if path.is_file() and path.name.endswith(suffix))
+
+
+def publish_public_stable(ctx: Context) -> None:
+    public = require_public_repo(ctx)
+    remote_base = f"{public['incoming_root'].rstrip('/')}/{ctx.build_id}"
+    remote(public["host"], f"install -d -m 0755 {q(remote_base)}", ctx)
+    rsync_to(f"artifacts/{ctx.build_id}/", public["host"], remote_base + "/", ctx)
+    command = " ".join([
+        q(public["publish_script"]),
+        f"--incoming {q(remote_base)}",
+        f"--web-root {q(public['web_root'])}",
+        f"--suite {q(public['apt_distribution'])}",
+        "--component stable",
+        f"--yum-distro-path {q(public['yum_distro_path'])}",
+        f"--gpg-name {q(public['gpg_name'])}",
+        "--skip-restorecon",
+    ])
+    remote(public["host"], command, ctx)
+
+
+def check_url(url: str, execute: bool) -> None:
+    print(f"+ check-url {url}")
+    if not execute:
+        return
+    request = urllib.request.Request(url, method="HEAD")
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            if response.status >= 400:
+                raise RuntimeError(f"{url} returned HTTP {response.status}")
+            return
+    except urllib.error.HTTPError as err:
+        if err.code not in {405, 501}:
+            raise
+    request = urllib.request.Request(url, method="GET")
+    with urllib.request.urlopen(request, timeout=20) as response:
+        if response.status >= 400:
+            raise RuntimeError(f"{url} returned HTTP {response.status}")
+
+
+def verify_public_stable(ctx: Context) -> None:
+    public = require_public_repo(ctx)
+    base = public["base_url"]
+    urls = [
+        f"{base}/keys/subvirt.asc",
+        f"{base}/keys/subvirt.gpg",
+    ]
+    debs = artifact_files(ctx, "ubuntu", ".deb")
+    if debs:
+        suite = public["apt_distribution"]
+        urls.extend([
+            f"{base}/apt/ubuntu/dists/{suite}/Release",
+            f"{base}/apt/ubuntu/dists/{suite}/InRelease",
+            f"{base}/apt/ubuntu/dists/{suite}/stable/binary-amd64/Packages.gz",
+        ])
+        urls.extend(f"{base}/apt/ubuntu/pool/stable/{path.name}" for path in debs)
+    rpms = [
+        path for path in artifact_files(ctx, "alma", ".rpm")
+        if not path.name.endswith(".src.rpm") and "debuginfo" not in path.name and "debugsource" not in path.name
+    ]
+    if rpms:
+        yum_path = public["yum_distro_path"].strip("/")
+        urls.extend([
+            f"{base}/yum/{yum_path}/stable/repodata/repomd.xml",
+            f"{base}/yum/{yum_path}/stable/repodata/repomd.xml.asc",
+        ])
+        urls.extend(f"{base}/yum/{yum_path}/stable/{path.name}" for path in rpms)
+    if not debs and not rpms:
+        raise SystemExit(f"no public-verifiable packages found in artifacts/{ctx.build_id}")
+    for url in urls:
+        check_url(url, ctx.execute)
 
 def storage_base_args(ctx: Context) -> str:
     t = tests(ctx)
@@ -462,6 +567,8 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
         "test-ubuntu-artifacts",
         "test-alma-artifacts",
         "publish-staging",
+        "publish-public-stable",
+        "verify-public-stable",
         "test-staging",
         "test-lab",
         "promote",
@@ -490,6 +597,8 @@ def main(argv: Iterable[str] = sys.argv[1:]) -> int:
         "test-ubuntu-artifacts": lambda: install_ubuntu_artifacts(ctx),
         "test-alma-artifacts": lambda: install_alma_artifacts(ctx),
         "publish-staging": lambda: publish_staging(ctx),
+        "publish-public-stable": lambda: publish_public_stable(ctx),
+        "verify-public-stable": lambda: verify_public_stable(ctx),
         "test-staging": lambda: test_staging(ctx),
         "test-lab": lambda: test_ephemeral_lab(ctx),
         "promote": lambda: promote(ctx),

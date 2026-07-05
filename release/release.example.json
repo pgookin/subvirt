@@ -11,7 +11,8 @@
     "build": "subvirt-build",
     "ubuntu_test": "subvirt-u24",
     "alma_test": "subvirt-al10",
-    "repo": "subvirt-repo"
+    "repo": "subvirt-repo",
+    "public_repo": "subvirt-publish@repo.subvirt.net"
   },
   "repos": {
     "aptly_repo_prefix": "subvirt-ubuntu-noble",
@@ -19,6 +20,16 @@
     "apt_component": "main",
     "yum_distro_path": "almalinux/10",
     "web_root": "/srv/repo/www"
+  },
+  "public_repo": {
+    "host": "subvirt-publish@repo.subvirt.net",
+    "incoming_root": "/srv/subvirt/incoming",
+    "web_root": "/srv/repo/www",
+    "apt_distribution": "noble",
+    "yum_distro_path": "almalinux/10",
+    "base_url": "https://repo.subvirt.net",
+    "gpg_name": "Subvirt Repository <repo@subvirt.net>",
+    "publish_script": "/usr/local/libexec/subvirt/publish-repo.py"
   },
   "tests": {
     "pool": "hot1",

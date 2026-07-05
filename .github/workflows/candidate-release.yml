@@ -21,7 +21,7 @@ on:
         description: Alma libvirt package version to refresh, when refresh_sources=true
         required: false
       promote_stable:
-        description: Run Codex gate and promote to stable after staging tests pass
+        description: Run Codex gate and publish to public stable after tests pass
         required: false
         default: "true"
 

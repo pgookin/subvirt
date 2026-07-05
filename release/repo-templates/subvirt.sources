@@ -1,5 +1,5 @@
 Types: deb
-URIs: https://repo.example.com/apt/ubuntu
+URIs: https://repo.subvirt.net/apt/ubuntu
 Suites: noble
 Components: stable
 Signed-By: /usr/share/keyrings/subvirt-archive-keyring.gpg

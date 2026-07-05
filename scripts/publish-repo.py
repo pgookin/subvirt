@@ -190,6 +190,7 @@ def main() -> int:
     parser.add_argument("--component", choices=["staging", "stable"], required=True)
     parser.add_argument("--yum-distro-path", default="almalinux/10")
     parser.add_argument("--gpg-name", default="Subvirt Repository <repo@subvirt.local>")
+    parser.add_argument("--skip-restorecon", action="store_true", help="do not run restorecon after publishing")
     args = parser.parse_args()
 
     published = [
@@ -199,7 +200,7 @@ def main() -> int:
     if not any(published):
         raise SystemExit(f"no publishable packages found in {args.incoming}")
     export_key(args.web_root)
-    if shutil.which("restorecon"):
+    if not args.skip_restorecon and shutil.which("restorecon") and os.geteuid() == 0:
         run(["restorecon", "-RF", str(args.web_root)])
     return 0
 

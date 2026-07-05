@@ -128,8 +128,8 @@ fi
 
 if [[ "$PROMOTE_STABLE" == "true" ]]; then
   ./scripts/codex-release-gate.sh "$BUILD_ID"
-  ./scripts/release.py publish-staging --config "$CONFIG" --build-id "$BUILD_ID" --execute
-  ./scripts/release.py promote --config "$CONFIG" --build-id "$BUILD_ID" --execute
+  ./scripts/release.py publish-public-stable --config "$CONFIG" --build-id "$BUILD_ID" --execute
+  ./scripts/release.py verify-public-stable --config "$CONFIG" --build-id "$BUILD_ID" --execute
 fi
 
 summary "Candidate workflow completed."

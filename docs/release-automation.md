@@ -37,7 +37,7 @@ Generated paths such as `build/`, `sources/`, `dist/`, `provider-build/`, `work-
 
 `scripts/write-upstream-manifest.py` records the durable refresh proof in `release/upstream-manifests/`. These manifests are committed with the lock update and include the upstream source file checksums, tracked patch checksums, generated local version, and a small generated-output check. Generated source trees, downloaded source packages, binary packages, and repo metadata are still not committed.
 
-When the upstream check workflow detects a newer parent package, it refreshes generated source inputs, writes manifests, and opens or updates `automation/upstream-libvirt-refresh`. The candidate build runs from that PR branch. If the candidate build and ephemeral lab test pass, the workflow comments with the evidence URL. Scheduled runs finalize automatically by merging the PR, publishing the tested build to staging, and promoting the same build ID to stable. Manual `workflow_dispatch` runs default to `finalize=false`, which exercises the production path but skips merge and stable promotion; set `finalize=true` only when you want the manual run to publish stable. If refresh, build, test, merge, or publish fails, stable promotion does not run.
+When the upstream check workflow detects a newer parent package, it refreshes generated source inputs, writes manifests, and opens or updates `automation/upstream-libvirt-refresh`. The candidate build runs from that PR branch. If the candidate build and ephemeral lab test pass, the workflow comments with the evidence URL. Scheduled runs finalize automatically by publishing the tested build to the public stable repository, verifying the public HTTPS metadata and package URLs, and then merging the PR. Manual `workflow_dispatch` runs default to `finalize=false`, which exercises the production path but skips public publishing and merging; set `finalize=true` only when you want the manual run to publish stable. If refresh, build, test, public publish, or verification fails, the PR is not merged.
 
 ## Commands
 
@@ -61,7 +61,8 @@ Run individual phases:
 ./scripts/release.py test-artifacts --config release/release.json --ref v0.1.0 --build-id 0.1.0-1 --execute
 ./scripts/release.py publish-staging --config release/release.json --build-id 0.1.0-1 --execute
 ./scripts/release.py test-staging --config release/release.json --ref v0.1.0 --build-id 0.1.0-1 --execute
-./scripts/release.py promote --config release/release.json --build-id 0.1.0-1 --execute
+./scripts/release.py publish-public-stable --config release/release.json --build-id 0.1.0-1 --execute
+./scripts/release.py verify-public-stable --config release/release.json --build-id 0.1.0-1 --execute
 ```
 
 Use `--test-id` to rerun storage tests against the same artifact directory without reusing volume names:
@@ -109,58 +110,40 @@ This is the fast confidence gate for the lab workflow. Staging repo tests still 
 
 ## Repo Host Bootstrap
 
-The lab repo host is `subvirt-repo`, currently an AlmaLinux 10.2 VM at `10.6.0.118`.
-Bootstrap it from a synced project checkout:
+The internal lab repo host remains `subvirt-repo`. The public stable repo host is `repo.subvirt.net` on the DigitalOcean VPS.
+
+Use `scripts/bootstrap-repo-host.sh` only for lab hosts where Subvirt owns nginx completely. For the public VPS, use the safer bootstrap so the existing landing page, nginx server blocks, and Certbot-managed TLS config are preserved:
 
 ```sh
-ssh subvirt-repo
+ssh subvirtDO
 cd /srv/subvirt/build
-./scripts/bootstrap-repo-host.sh
+./scripts/bootstrap-public-repo-host.sh /tmp/subvirt-build-publish.pub
 ```
 
-The bootstrap installs:
+The public bootstrap installs repo publishing dependencies, creates a dedicated `subvirt-publish` user, installs `/usr/local/libexec/subvirt/publish-repo.py`, prepares `/srv/repo/www` and `/srv/subvirt/incoming`, and generates a production signing key named `Subvirt Repository <repo@subvirt.net>` as the deploy user. The private signing key stays on the public VPS.
 
-- `nginx` for static HTTP serving.
-- `createrepo_c` for AlmaLinux/YUM metadata.
-- `rpm-sign` for RPM package signing.
-- `zstd` for reading Ubuntu `.deb` control archives.
-- `rsync`, `gnupg2`, `policycoreutils-python-utils`, and `firewalld`.
-
-It creates these paths:
-
-- `/srv/repo/www`: nginx document root.
-- `/srv/subvirt/incoming`: uploaded release artifacts.
-- `/usr/local/libexec/subvirt/publish-repo.py`: repo metadata publisher.
-
-It also creates a local lab GPG key named `Subvirt Repository <repo@subvirt.local>` if one does not already exist, exports public keys under `/srv/repo/www/keys/`, opens HTTP in firewalld, and enables nginx.
-
-For a future public VPS, repeat this bootstrap on the VPS, then replace the lab GPG key with a production key and update the client templates to use the public hostname and HTTPS.
+The build runner publishes to the public VPS over SSH as `subvirt-publish@repo.subvirt.net`. Public publishing writes only the `stable` channel; candidate and staging validation stay private.
 
 ## Publishing
 
-The VPS publishes two channels per distro:
+The public VPS publishes the `stable` channel only. Candidate and staging repositories remain private to the lab workflow.
 
-- `staging`: every candidate build lands here first.
-- `stable`: promoted only after staging tests pass.
-
-Apt metadata is generated by `scripts/publish-repo.py`. Yum/DNF metadata is managed by `createrepo_c`. The GPG signing key lives only on the repo host.
+Apt metadata is generated by `scripts/publish-repo.py`. Yum/DNF metadata is managed by `createrepo_c`. The production GPG signing key lives only on the public repo host under the `subvirt-publish` account.
 
 The published layout is:
 
-- `http://<repo-host>/apt/ubuntu/dists/noble/staging/...`
-- `http://<repo-host>/apt/ubuntu/dists/noble/stable/...`
-- `http://<repo-host>/yum/almalinux/10/staging/...`
-- `http://<repo-host>/yum/almalinux/10/stable/...`
-- `http://<repo-host>/keys/subvirt.gpg` for apt `Signed-By` use.
-- `http://<repo-host>/keys/subvirt.asc` for DNF/RPM `gpgkey` use.
+- `https://repo.subvirt.net/apt/ubuntu/dists/noble/stable/...`
+- `https://repo.subvirt.net/apt/ubuntu/pool/stable/...`
+- `https://repo.subvirt.net/yum/almalinux/10/stable/...`
+- `https://repo.subvirt.net/keys/subvirt.gpg` for apt `Signed-By` use.
+- `https://repo.subvirt.net/keys/subvirt.asc` for DNF/RPM `gpgkey` use.
 
-Client templates are in `release/repo-templates/`:
+Stable client templates are in `release/repo-templates/`:
 
 - `subvirt.sources`
-- `subvirt-staging.sources`
 - `subvirt.repo`
 
-Replace `repo.example.com` with the production repo hostname before publishing installation instructions.
+They already target `repo.subvirt.net`. The staging template remains an internal/example template and is not part of public publishing.
 
 ## Future GitHub Workflow
 
@@ -169,7 +152,7 @@ GitHub is not required for the current lab workflow. In the lab, `scripts/releas
 - A scheduled workflow polls Ubuntu and AlmaLinux package metadata every 8 hours for new libvirt source versions.
 - A manual `workflow_dispatch` path starts release candidates on demand.
 - A self-hosted runner on `subvirt-build` runs the same Podman wrapper scripts used locally.
-- Candidate artifacts are uploaded, published to staging, tested on the two test VMs, reviewed by a Codex veto gate, then promoted to stable only after deterministic tests pass and Codex does not hold the release.
+- Candidate artifacts are tested privately. Finalization publishes tested artifacts to public stable, verifies public HTTPS metadata and package URLs, then merges the upstream refresh PR.
 
 There is no expected webhook-style event from Ubuntu or AlmaLinux for new libvirt packages. Polling distro package metadata is the pragmatic path.
 

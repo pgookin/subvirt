@@ -165,17 +165,17 @@ The response should include `"ok": true`. If it does not, check the
 
 ## Create a TrueNAS Storage Pool
 
-Create one libvirt pool per TrueNAS pool and transport. Replace `hot1` with the
+Create one libvirt pool per TrueNAS pool and transport. Replace `tank` with the
 TrueNAS pool name you want to use.
 
 iSCSI:
 
 ```sh
-cat >/tmp/truenas-hot1-iscsi.xml <<'EOF'
+cat >/tmp/truenas-tank-iscsi.xml <<'EOF'
 <pool type='truenas'>
-  <name>truenas-hot1-iscsi</name>
+  <name>truenas-tank-iscsi</name>
   <source>
-    <name>hot1</name>
+    <name>tank</name>
     <protocol type='iscsi'/>
   </source>
   <target>
@@ -184,19 +184,19 @@ cat >/tmp/truenas-hot1-iscsi.xml <<'EOF'
 </pool>
 EOF
 
-sudo virsh pool-define /tmp/truenas-hot1-iscsi.xml
-sudo virsh pool-start truenas-hot1-iscsi
-sudo virsh pool-autostart truenas-hot1-iscsi
+sudo virsh pool-define /tmp/truenas-tank-iscsi.xml
+sudo virsh pool-start truenas-tank-iscsi
+sudo virsh pool-autostart truenas-tank-iscsi
 ```
 
 NVMe-oF:
 
 ```sh
-cat >/tmp/truenas-hot1-nvmeof.xml <<'EOF'
+cat >/tmp/truenas-tank-nvmeof.xml <<'EOF'
 <pool type='truenas'>
-  <name>truenas-hot1-nvmeof</name>
+  <name>truenas-tank-nvmeof</name>
   <source>
-    <name>hot1</name>
+    <name>tank</name>
     <protocol type='nvmeof'/>
   </source>
   <target>
@@ -205,17 +205,17 @@ cat >/tmp/truenas-hot1-nvmeof.xml <<'EOF'
 </pool>
 EOF
 
-sudo virsh pool-define /tmp/truenas-hot1-nvmeof.xml
-sudo virsh pool-start truenas-hot1-nvmeof
-sudo virsh pool-autostart truenas-hot1-nvmeof
+sudo virsh pool-define /tmp/truenas-tank-nvmeof.xml
+sudo virsh pool-start truenas-tank-nvmeof
+sudo virsh pool-autostart truenas-tank-nvmeof
 ```
 
 Refresh and inspect the pool:
 
 ```sh
-sudo virsh pool-refresh truenas-hot1-iscsi
-sudo virsh pool-info truenas-hot1-iscsi
-sudo virsh vol-list truenas-hot1-iscsi
+sudo virsh pool-refresh truenas-tank-iscsi
+sudo virsh pool-info truenas-tank-iscsi
+sudo virsh vol-list truenas-tank-iscsi
 ```
 
 ## Create a Volume
@@ -223,17 +223,17 @@ sudo virsh vol-list truenas-hot1-iscsi
 Create a 64 GiB iSCSI-backed volume:
 
 ```sh
-sudo virsh vol-create-as truenas-hot1-iscsi vm01-root 64G
-sudo virsh vol-list truenas-hot1-iscsi
-sudo virsh vol-path --pool truenas-hot1-iscsi vm01-root
+sudo virsh vol-create-as truenas-tank-iscsi vm01-root 64G
+sudo virsh vol-list truenas-tank-iscsi
+sudo virsh vol-path --pool truenas-tank-iscsi vm01-root
 ```
 
 Create a 64 GiB NVMe-oF-backed volume:
 
 ```sh
-sudo virsh vol-create-as truenas-hot1-nvmeof vm01-fast 64G
-sudo virsh vol-list truenas-hot1-nvmeof
-sudo virsh vol-path --pool truenas-hot1-nvmeof vm01-fast
+sudo virsh vol-create-as truenas-tank-nvmeof vm01-fast 64G
+sudo virsh vol-list truenas-tank-nvmeof
+sudo virsh vol-path --pool truenas-tank-nvmeof vm01-fast
 ```
 
 You can also create volumes from patched `virt-manager` after installing the

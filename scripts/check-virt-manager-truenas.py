@@ -64,7 +64,7 @@ def dynamic_checks(source_root: Path) -> list[tuple[bool, str]]:
     pool = StoragePool(None)
     pool.type = StoragePool.TYPE_TRUENAS
     pool.name = "subvirt-test"
-    pool.source_name = "hot1"
+    pool.source_name = "tank"
     pool.source_protocol = "nvmeof"
     pool.validate_name = lambda *_args, **_kwargs: None
     pool.validate()

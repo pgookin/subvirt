@@ -226,13 +226,13 @@ def testTrueNASPoolXML():
     pool_inst = StoragePool(conn)
     pool_inst.name = "pool-truenas"
     pool_inst.type = StoragePool.TYPE_TRUENAS
-    pool_inst.source_name = "hot1"
+    pool_inst.source_name = "tank"
     pool_inst.source_protocol = "nvmeof"
     pool_inst.target_path = pool_inst.default_target_path()
     pool_inst.validate_name = lambda *_args, **_kwargs: None
     pool_inst.validate()
     xml = pool_inst.get_xml()
-    assert "<name>hot1</name>" in xml
+    assert "<name>tank</name>" in xml
     assert '<protocol type="nvmeof"/>' in xml
     assert "<path>/dev/disk/by-id</path>" in xml
 """

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -82,6 +83,16 @@ def generated_outputs(distro: str, version: str) -> list[dict[str, Any]]:
     return [file_entry(expected)]
 
 
+def sanitize_source_metadata(value: str) -> str:
+    parsed = urllib.parse.urlsplit(value)
+    if parsed.scheme and parsed.netloc:
+        path = parsed.path.lstrip("/")
+        if parsed.query:
+            path = f"{path}?{parsed.query}"
+        return f"configured-mirror:{path}"
+    return value
+
+
 def local_version(distro: str, version: str) -> str:
     if distro == "ubuntu":
         return version if version.endswith("+truenas1") else f"{version}+truenas1"
@@ -114,7 +125,7 @@ def write_manifest(row: dict[str, Any], output_dir: Path) -> Path:
         "package": package,
         "upstream_version": version,
         "local_version": local_version(distro, version),
-        "source_metadata": str(row.get("source", "")),
+        "source_metadata": sanitize_source_metadata(str(row.get("source", ""))),
         "source_files": sources,
         "patches": patch_files(distro),
         "generated_checks": generated_outputs(distro, version),

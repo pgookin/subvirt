@@ -4,7 +4,7 @@
 
 The active release flow uses one build VM, two distro test VMs, and one repository VPS.
 
-- Build VM: `subvirt-build`, an Ubuntu 24.04 host that runs Podman.
+- Build VM: an Ubuntu 24.04 self-hosted runner that runs Podman.
 - Ubuntu build container: builds Ubuntu 24.04 packages inside a pinned Ubuntu image.
 - AlmaLinux build container: builds AlmaLinux 10 packages inside a pinned AlmaLinux image.
 - Ubuntu test VM: installs only from the staging apt repo and runs smoke tests.
@@ -73,7 +73,7 @@ Use `--test-id` to rerun storage tests against the same artifact directory witho
 
 ## Build Helpers
 
-The orchestrator calls these project-local wrapper scripts on `subvirt-build`:
+The orchestrator calls these project-local wrapper scripts on the build host:
 
 - `scripts/container-build-ubuntu.sh`
 - `scripts/container-build-alma.sh`
@@ -95,7 +95,7 @@ The current container mode uses native package builds inside the pinned distro i
 Bootstrap the build host:
 
 ```sh
-ssh subvirt-build
+ssh <build-host>
 cd /srv/subvirt/build
 ./scripts/bootstrap-build-host.sh
 ```
@@ -110,7 +110,7 @@ This is the fast confidence gate for the lab workflow. Staging repo tests still 
 
 ## Repo Host Bootstrap
 
-The internal lab repo host remains `subvirt-repo`. The public stable repo host is `repo.subvirt.net` on the DigitalOcean VPS.
+The internal lab repo host is configured in the local release config. The public stable repo host is `repo.subvirt.net`.
 
 Use `scripts/bootstrap-repo-host.sh` only for lab hosts where Subvirt owns nginx completely. For the public VPS, use the safer bootstrap so the existing landing page, nginx server blocks, and Certbot-managed TLS config are preserved:
 
@@ -157,7 +157,7 @@ GitHub is not required for the current lab workflow. In the lab, `scripts/releas
 
 - A scheduled workflow polls Ubuntu and AlmaLinux package metadata every 8 hours for new libvirt source versions.
 - A manual `workflow_dispatch` path starts release candidates on demand.
-- A self-hosted runner on `subvirt-build` runs the same Podman wrapper scripts used locally.
+- A self-hosted build runner runs the same Podman wrapper scripts used locally.
 - Candidate artifacts are tested privately. Finalization publishes tested artifacts to public stable, verifies public HTTPS metadata and package URLs, then merges the upstream refresh PR.
 
 There is no expected webhook-style event from Ubuntu or AlmaLinux for new libvirt packages. Polling distro package metadata is the pragmatic path.

@@ -8,10 +8,10 @@
     "source_mode": "git"
   },
   "hosts": {
-    "build": "subvirt-build",
-    "ubuntu_test": "subvirt-u24",
-    "alma_test": "subvirt-al10",
-    "repo": "subvirt-repo",
+    "build": "build-host",
+    "ubuntu_test": "ubuntu-test-host",
+    "alma_test": "alma-test-host",
+    "repo": "internal-repo-host",
     "public_repo": "subvirt-publish@repo.subvirt.net"
   },
   "repos": {
@@ -32,11 +32,11 @@
     "publish_script": "/usr/local/libexec/subvirt/publish-repo.py"
   },
   "tests": {
-    "pool": "hot1",
-    "iscsi_pool": "truenas-hot1-iscsi",
-    "nvmeof_pool": "truenas-hot1-nvmeof",
-    "iscsi_pool_xml": "examples/storage-pool-hot1-iscsi.xml",
-    "nvmeof_pool_xml": "examples/storage-pool-hot1-nvmeof.xml",
+    "pool": "tank",
+    "iscsi_pool": "truenas-tank-iscsi",
+    "nvmeof_pool": "truenas-tank-nvmeof",
+    "iscsi_pool_xml": "examples/storage-pool-tank-iscsi.xml",
+    "nvmeof_pool_xml": "examples/storage-pool-tank-nvmeof.xml",
     "migration_domain": "subvirt-migration-smoke",
     "run_migration": false
   },
@@ -57,7 +57,7 @@
   "lab": {
     "enabled": false,
     "full": false,
-    "host": "subvirt-build",
+    "host": "build-host",
     "config": "/srv/subvirt/release/lab.json"
   }
 }

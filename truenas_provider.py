@@ -628,8 +628,9 @@ def cmd_iscsi_export(args: argparse.Namespace) -> None:
     zvol = managed_zvol_name(args.pool, args.name, config)
     truenas = config["truenas"]
     assert isinstance(truenas, dict)
-    target_ip = args.target_ip or truenas.get("target_ip") or "10.6.0.119"
-    assert isinstance(target_ip, str)
+    target_ip = args.target_ip or truenas.get("target_ip")
+    if not isinstance(target_ip, str) or not target_ip:
+        raise ConfigError("TrueNAS storage target_ip is required in config or --target-ip")
     iqns = [local_iscsi_iqn()]
     target_name = args.target_name or managed_export_name(args.name)
     with open_client(config) as client:
@@ -786,8 +787,9 @@ def cmd_nvmeof_export(args: argparse.Namespace) -> None:
     zvol = managed_zvol_name(args.pool, args.name, config)
     truenas = config["truenas"]
     assert isinstance(truenas, dict)
-    target_ip = args.target_ip or truenas.get("target_ip") or "10.6.0.119"
-    assert isinstance(target_ip, str)
+    target_ip = args.target_ip or truenas.get("target_ip")
+    if not isinstance(target_ip, str) or not target_ip:
+        raise ConfigError("TrueNAS storage target_ip is required in config or --target-ip")
     hostnqns = [local_nvme_nqn()]
     subsys_name = args.subsys_name or managed_export_name(args.name)
     with open_client(config) as client:

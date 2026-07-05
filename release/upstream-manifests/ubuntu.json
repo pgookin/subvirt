@@ -39,6 +39,6 @@
       "size": 833
     }
   ],
-  "source_metadata": "http://10.1.0.121/ubuntu/dists/noble-updates/main/binary-amd64/Packages.xz",
+  "source_metadata": "configured-mirror:ubuntu/dists/noble-updates/main/binary-amd64/Packages.xz",
   "upstream_version": "10.0.0-2ubuntu8.14"
 }

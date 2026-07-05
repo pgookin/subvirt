@@ -117,8 +117,9 @@ class TrueNASLibvirtProvider:
     def _target_ip(self, override: str | None = None) -> str:
         truenas = self.config["truenas"]
         assert isinstance(truenas, dict)
-        target_ip = override or truenas.get("target_ip") or "10.6.0.119"
-        assert isinstance(target_ip, str)
+        target_ip = override or truenas.get("target_ip")
+        if not isinstance(target_ip, str) or not target_ip:
+            raise ProviderError("config_invalid", "TrueNAS storage target_ip is required in provider config")
         return target_ip
 
     def _target_name(self, volume: str) -> str:

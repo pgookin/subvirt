@@ -1,10 +1,10 @@
 # Ephemeral Test Lab
 
-Subvirt can run release-candidate tests against disposable VMs created on `subvirt-build` with libvirt. The lab path is intended to replace long-lived Ubuntu/Alma test hosts once the TrueNAS appliance install flow is stable.
+Subvirt can run release-candidate tests against disposable VMs created on the build host with libvirt. The lab path is intended to replace long-lived Ubuntu/Alma test hosts once the TrueNAS appliance install flow is stable.
 
 ## Roles
 
-- `subvirt-build`: VM factory, per-run repo publisher, and release runner.
+- Build host: VM factory, per-run repo publisher, and release runner.
 - Ubuntu VM: fresh Ubuntu 24.04 cloud image test host.
 - AlmaLinux VM: fresh AlmaLinux 10 cloud image test host.
 - TrueNAS VM: ISO-installed or golden-image appliance with separate management and storage NICs.
@@ -18,7 +18,7 @@ The lab nginx service listens on `lab.http_listen`; use `0.0.0.0:8080` when boot
 
 ## Configuration
 
-Copy `release/lab.example.json` to an untracked local config such as `/srv/subvirt/release/lab.json` on `subvirt-build` and fill in local values:
+Copy `release/lab.example.json` to an untracked local config such as `/srv/subvirt/release/lab.json` on the build host and fill in local values:
 
 - SSH public key file or literal authorized key.
 - TrueNAS ISO URL and checksum, or `install_mode=golden` with `golden_image` after a stable install image exists.
@@ -72,7 +72,7 @@ To make release validation use the ephemeral lab, set this in the local release 
 "lab": {
   "enabled": true,
   "full": false,
-  "host": "subvirt-build",
+  "host": "build-host",
   "config": "/srv/subvirt/release/lab.json"
 }
 ```

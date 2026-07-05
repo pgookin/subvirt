@@ -1,7 +1,7 @@
 <pool type='truenas'>
-  <name>truenas-hot1-iscsi</name>
+  <name>truenas-tank-iscsi</name>
   <source>
-    <name>hot1</name>
+    <name>tank</name>
     <protocol type='iscsi'/>
   </source>
   <target>

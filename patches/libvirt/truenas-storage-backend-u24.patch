@@ -214,7 +214,7 @@ new file mode 100644
 index 0000000..4594727
 --- /dev/null
 +++ b/src/storage/storage_backend_truenas.c
-@@ -0,0 +1,513 @@
+@@ -0,0 +1,514 @@
 +/*
 + * storage_backend_truenas.c: storage backend for TrueNAS provider daemon
 + */
@@ -618,11 +618,12 @@ index 0000000..4594727
 +    if (!(result = virStorageBackendTrueNASCall("vol.clone", &params)))
 +        return -1;
 +
-+    if ((path = virJSONValueObjectGetString(result, "path"))) {
-+        VIR_FREE(newvol->target.path);
-+        newvol->target.path = g_strdup(path);
-+        VIR_FREE(newvol->key);
-+        newvol->key = g_strdup(newvol->target.path);
++    if ((path = virJSONValueObjectGetString(result, "path")) &&
++        STRNEQ_NULLABLE(path, newvol->target.path)) {
++        virReportError(VIR_ERR_INTERNAL_ERROR,
++                       _("TrueNAS clone path '%1$s' does not match prepared volume path '%2$s'"),
++                       path, NULLSTR(newvol->target.path));
++        return -1;
 +    }
 +
 +    if (virJSONValueObjectGetNumberUlong(result, "capacity", &resultCapacity) == 0)

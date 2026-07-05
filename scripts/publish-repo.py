@@ -89,7 +89,7 @@ def publish_apt(incoming: Path, web_root: Path, suite: str, component: str) -> b
     packages_dir.mkdir(parents=True, exist_ok=True)
 
     for deb in debs:
-        shutil.copy2(deb, pool / deb.name)
+        shutil.copyfile(deb, pool / deb.name)
 
     paragraphs: list[str] = []
     for deb in sorted(pool.glob("*.deb")):
@@ -161,7 +161,7 @@ def publish_yum(incoming: Path, web_root: Path, distro_path: str, channel: str, 
     target.mkdir(parents=True, exist_ok=True)
     for rpm in rpms:
         dst = target / rpm.name
-        shutil.copy2(rpm, dst)
+        shutil.copyfile(rpm, dst)
         sign_cmd = ["rpmsign"]
         if shutil.which("gpg"):
             sign_cmd += ["--define", f"__gpg {shutil.which('gpg')}"]

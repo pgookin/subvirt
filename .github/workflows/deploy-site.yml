@@ -1,0 +1,22 @@
+name: Deploy website
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - site/**
+      - scripts/deploy-site.sh
+      - .github/workflows/deploy-site.yml
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, subvirt-build]
+    concurrency: subvirt-site-deploy
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - name: Validate deploy script
+        run: bash -n scripts/deploy-site.sh
+      - name: Deploy site
+        run: scripts/deploy-site.sh

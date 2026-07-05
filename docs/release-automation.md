@@ -145,6 +145,12 @@ Stable client templates are in `release/repo-templates/`:
 
 They already target `repo.subvirt.net`. The staging template remains an internal/example template and is not part of public publishing.
 
+## Website Deployment
+
+The public landing page for `https://subvirt.net/` is tracked as a plain static site in `site/`. Pushes to `main` that change `site/**`, `scripts/deploy-site.sh`, or the website workflow run `.github/workflows/deploy-site.yml` on the self-hosted build runner. The workflow syncs `site/` to `/srv/www/` on the public VPS as `subvirt-publish@repo.subvirt.net` and verifies both `https://subvirt.net/` and `https://www.subvirt.net/` after deploy.
+
+Website deployment is separate from package publishing. Package repository content remains under `/srv/repo/www/` and is served only by `repo.subvirt.net`.
+
 ## Future GitHub Workflow
 
 GitHub is not required for the current lab workflow. In the lab, `scripts/release.py` synchronizes this workspace over SSH with `rsync`. Once the project is published, GitHub Actions should become the control plane:

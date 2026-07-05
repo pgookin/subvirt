@@ -11,7 +11,7 @@ if ! id "$PUBLISH_USER" >/dev/null 2>&1; then
     useradd --system --create-home --home-dir "/var/lib/$PUBLISH_USER" --shell /bin/bash "$PUBLISH_USER"
 fi
 
-install -d -m 0755 -o "$PUBLISH_USER" -g "$PUBLISH_USER" /srv/repo/www /srv/subvirt/incoming
+install -d -m 0755 -o "$PUBLISH_USER" -g "$PUBLISH_USER" /srv/repo/www /srv/www /srv/subvirt/incoming
 install -d -m 0755 /usr/local/libexec/subvirt
 install -m 0755 scripts/publish-repo.py /usr/local/libexec/subvirt/publish-repo.py
 
@@ -25,6 +25,7 @@ if ! runuser -u "$PUBLISH_USER" -- gpg --batch --list-secret-keys "$GPG_NAME" >/
 fi
 
 semanage fcontext -a -t httpd_sys_content_t '/srv/repo/www(/.*)?' 2>/dev/null || semanage fcontext -m -t httpd_sys_content_t '/srv/repo/www(/.*)?'
-restorecon -RF /srv/repo/www /srv/subvirt/incoming /usr/local/libexec/subvirt || true
+semanage fcontext -a -t httpd_sys_content_t '/srv/www(/.*)?' 2>/dev/null || semanage fcontext -m -t httpd_sys_content_t '/srv/www(/.*)?'
+restorecon -RF /srv/repo/www /srv/www /srv/subvirt/incoming /usr/local/libexec/subvirt || true
 
 nginx -t

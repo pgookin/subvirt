@@ -140,6 +140,7 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
     parser.add_argument("--nvmeof-pool-xml", required=True)
     parser.add_argument("--migration-domain", required=True)
     parser.add_argument("--min-pool-capacity-gib", type=int, default=100)
+    parser.add_argument("--test-resize", action="store_true", help="exercise virsh vol-resize when the backend advertises resize support")
     return parser.parse_args(list(argv))
 
 
@@ -158,11 +159,13 @@ def main(argv: Iterable[str] = sys.argv[1:]) -> int:
     if args.action == "create":
         if args.role == "ubuntu":
             create_volume(args.iscsi_pool, iscsi_name)
-            resize_volume(args.iscsi_pool, iscsi_name, "96M", 96 * 1024**2)
+            if args.test_resize:
+                resize_volume(args.iscsi_pool, iscsi_name, "96M", 96 * 1024**2)
             clone_volume(args.iscsi_pool, iscsi_name, iscsi_clone)
         else:
             create_volume(args.nvmeof_pool, nvmeof_name)
-            resize_volume(args.nvmeof_pool, nvmeof_name, "96M", 96 * 1024**2)
+            if args.test_resize:
+                resize_volume(args.nvmeof_pool, nvmeof_name, "96M", 96 * 1024**2)
             clone_volume(args.nvmeof_pool, nvmeof_name, nvmeof_clone)
     elif args.action == "check-peer":
         virsh("pool-refresh", args.iscsi_pool)

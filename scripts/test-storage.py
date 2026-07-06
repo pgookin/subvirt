@@ -280,9 +280,12 @@ def select_migration_machine(local_emulator: str, peer: str, requested: str) -> 
         raise RuntimeError(
             "no common concrete QEMU machine type found; this hypervisor pair is not a valid live-migration baseline"
         )
-    for name in common:
-        if name not in local_deprecated and name not in remote_deprecated:
+    stable_common = [name for name in common if name not in local_deprecated and name not in remote_deprecated]
+    for name in stable_common:
+        if name.startswith("pc-i440fx-"):
             return name
+    if stable_common:
+        return stable_common[0]
     return common[0]
 
 

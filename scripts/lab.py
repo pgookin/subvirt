@@ -921,10 +921,14 @@ def destroy_lab(lab: Lab) -> None:
             path.unlink(missing_ok=True)
         else:
             print(f"+ rm -f {path}")
-    for key in ("management", "storage"):
-        name = lab.config["networks"][key]["name"]
-        run_shell(f"virsh -c qemu:///system net-destroy {q(name)} || true", lab.execute)
-        run_shell(f"virsh -c qemu:///system net-undefine {q(name)} || true", lab.execute)
+    keep_networks = domain_state(lab, persistent_truenas_name(lab)) is not None
+    if keep_networks:
+        print(f"persistent TrueNAS VM {persistent_truenas_name(lab)} exists; keeping lab networks")
+    else:
+        for key in ("management", "storage"):
+            name = lab.config["networks"][key]["name"]
+            run_shell(f"virsh -c qemu:///system net-destroy {q(name)} || true", lab.execute)
+            run_shell(f"virsh -c qemu:///system net-undefine {q(name)} || true", lab.execute)
     if lab.execute and lab.run_dir.exists():
         shutil.rmtree(lab.run_dir)
     else:

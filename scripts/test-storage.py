@@ -96,6 +96,24 @@ def remote_ensure_pool(peer: str, name: str, xml: str) -> None:
         except subprocess.CalledProcessError:
             pass
     remote_virsh(peer, "pool-start", name)
+    remote_virsh(peer, "pool-refresh", name)
+
+
+def remote_wait_for_path(peer: str, path: str, timeout: int = 60) -> None:
+    deadline = time.time() + timeout
+    last = ""
+    while time.time() < deadline:
+        try:
+            remote(peer, "udevadm", "settle", "--timeout=5")
+        except subprocess.CalledProcessError as exc:
+            last = str(exc)
+        try:
+            remote(peer, "test", "-e", path)
+            return
+        except subprocess.CalledProcessError as exc:
+            last = str(exc)
+        time.sleep(1)
+    raise RuntimeError(f"path {path!r} did not appear on {peer}: {last}")
 
 
 UNIT_BYTES = {
@@ -392,6 +410,7 @@ def migration_smoke(args: argparse.Namespace) -> None:
         run(["qemu-img", "convert", "-O", "raw", str(image), disk_path])
         virsh("pool-refresh", args.iscsi_pool)
         remote_ensure_pool(args.peer, args.iscsi_pool, args.iscsi_pool_xml)
+        remote_wait_for_path(args.peer, disk_path)
 
         peer_alias = emulator if ensure_peer_emulator(args.peer, emulator) else None
         define_domain(domain, disk_path, emulator, machine)

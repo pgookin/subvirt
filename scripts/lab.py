@@ -413,6 +413,155 @@ def create_truenas_vm(lab: Lab) -> None:
         print(message)
 
 
+def persistent_truenas_name(lab: Lab) -> str:
+    return str(lab.config["vms"]["truenas"].get("persistent_name", "subvirt-lab-truenas"))
+
+
+def persistent_truenas_boot_disk(lab: Lab) -> Path:
+    vm = lab.config["vms"]["truenas"]
+    return Path(vm.get("persistent_boot_disk", lab.image_dir / "truenas-lab-boot.qcow2"))
+
+
+def persistent_truenas_data_disks(lab: Lab) -> list[Path]:
+    vm = lab.config["vms"]["truenas"]
+    configured = vm.get("persistent_data_disks")
+    if configured:
+        return [Path(item) for item in configured]
+    return [lab.image_dir / f"truenas-lab-data{index}.qcow2" for index, _ in enumerate(vm.get("data_disks", []), start=1)]
+
+
+def domain_state(lab: Lab, name: str) -> str | None:
+    output = virsh("list", "--all", lab=lab)
+    for line in output.splitlines():
+        parts = line.split()
+        if len(parts) >= 3 and parts[1] == name:
+            return " ".join(parts[2:])
+        if parts and parts[0] == name:
+            return " ".join(parts[1:])
+    return None
+
+
+def ensure_persistent_truenas(lab: Lab) -> None:
+    ensure_dirs(lab)
+    ensure_networks(lab)
+    vm = lab.config["vms"]["truenas"]
+    name = persistent_truenas_name(lab)
+    state = domain_state(lab, name)
+    if state:
+        if "running" not in state:
+            virsh("start", name, lab=lab)
+        print(f"persistent TrueNAS VM {name} already exists")
+        return
+
+    iso_url = vm["iso_url"]
+    iso = lab.cache_dir / Path(iso_url).name
+    download(iso_url, iso, vm.get("iso_sha256"), lab.execute)
+
+    boot_disk = persistent_truenas_boot_disk(lab)
+    if not boot_disk.exists() or not lab.execute:
+        run(["qemu-img", "create", "-f", "qcow2", str(boot_disk), vm["boot_disk_size"]], lab.execute)
+
+    data_disks = persistent_truenas_data_disks(lab)
+    for path, size in zip(data_disks, vm.get("data_disks", [])):
+        if not path.exists() or not lab.execute:
+            run(["qemu-img", "create", "-f", "qcow2", str(path), size], lab.execute)
+
+    mgmt_mac = str(vm.get("persistent_management_mac", mac_for("persistent-truenas", 30)))
+    storage_mac = str(vm.get("persistent_storage_mac", mac_for("persistent-truenas", 130)))
+    cmd = [
+        "virt-install", "--connect", "qemu:///system", "--name", name,
+        "--memory", str(vm["memory_mib"]), "--vcpus", str(vm["vcpus"]),
+        "--os-variant", vm.get("os_variant", "generic"),
+        "--disk", f"path={boot_disk},format=qcow2,bus=sata",
+    ]
+    for data in data_disks:
+        cmd += ["--disk", f"path={data},format=qcow2,bus=virtio"]
+    cmd += [
+        "--cdrom", str(iso),
+        "--boot", "cdrom,hd",
+        "--network", f"network={lab.config['networks']['management']['name']},model=virtio,mac={mgmt_mac}",
+        "--network", f"network={lab.config['networks']['storage']['name']},model=virtio,mac={storage_mac}",
+        "--graphics", "vnc,listen=127.0.0.1", "--noautoconsole",
+    ]
+    run(cmd, lab.execute)
+    display = ""
+    if lab.execute:
+        display = virsh("domdisplay", name, lab=lab).strip()
+    print(textwrap.dedent(f"""
+    Persistent TrueNAS VM {name} has been created.
+
+    Complete the TrueNAS installer once through the VM console, then configure:
+      management IP: {lab.config['truenas']['management_ip']}
+      storage IP:    {lab.config['truenas']['storage_ip']}
+      test pools:    {lab.config['tests']['iscsi_truenas_pool']}, {lab.config['tests']['nvmeof_truenas_pool']}
+      API user/key:  store the key only in the local lab config
+
+    Console display: {display or 'run virsh -c qemu:///system domdisplay ' + name}
+    """).strip())
+
+
+def wait_for_tcp(host: str, port: int, label: str, execute: bool, attempts: int = 60) -> None:
+    for attempt in range(1, attempts + 1):
+        try:
+            run_shell(f"timeout 5 bash -lc '</dev/tcp/{q(host)}/{int(port)}'", execute)
+            return
+        except subprocess.CalledProcessError:
+            if attempt == attempts:
+                raise SystemExit(f"timeout waiting for {label} at {host}:{port}")
+            time.sleep(5)
+
+
+def wait_truenas(lab: Lab) -> None:
+    ensure_networks(lab)
+    state = domain_state(lab, persistent_truenas_name(lab))
+    if state and "running" not in state:
+        virsh("start", persistent_truenas_name(lab), lab=lab)
+    wait_for_tcp(str(lab.config["truenas"]["management_ip"]), 443, "TrueNAS API", lab.execute)
+
+
+def truenas_api_config(lab: Lab) -> Path:
+    t = lab.config["truenas"]
+    api_key = t.get("api_key")
+    if not api_key:
+        raise SystemExit("truenas.api_key is required in the local lab config")
+    if lab.execute:
+        lab.run_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        print(f"+ mkdir -p {lab.run_dir}")
+    api_key_path = lab.run_dir / "truenas-api-key"
+    config_path = lab.run_dir / "truenas-provider-config.json"
+    if lab.execute:
+        api_key_path.write_text(str(api_key).strip() + "\n", encoding="utf-8")
+        os.chmod(api_key_path, 0o600)
+        config_path.write_text(json.dumps({
+            "truenas": {
+                "url": f"wss://{t['management_ip']}/api/current",
+                "username": t.get("username", "root"),
+                "api_key_file": str(api_key_path),
+                "tls_verify": False,
+                "target_ip": t["storage_ip"],
+            },
+            "namespace": {"dataset": t.get("dataset", "libvirt")},
+        }, indent=2) + "\n", encoding="utf-8")
+    else:
+        print(f"+ write {config_path}")
+    return config_path
+
+
+def doctor_truenas(lab: Lab) -> None:
+    wait_truenas(lab)
+    config_path = truenas_api_config(lab)
+    output = run([sys.executable, str(ROOT / "truenas_provider.py"), "--config", str(config_path), "pool-list"], lab.execute)
+    if not lab.execute:
+        return
+    pools = {item.get("name") for item in json.loads(output)}
+    required = {lab.config["tests"]["iscsi_truenas_pool"], lab.config["tests"]["nvmeof_truenas_pool"]}
+    missing = sorted(required - pools)
+    if missing:
+        raise SystemExit(f"TrueNAS is missing required test pools: {', '.join(missing)}")
+    print(f"TrueNAS doctor OK: pools {', '.join(sorted(required))} are present")
+
+
 def create_linux_lab(lab: Lab) -> None:
     ensure_dirs(lab)
     ensure_networks(lab)
@@ -697,6 +846,7 @@ def test_repo(lab: Lab, mode: str) -> None:
     api_key = lab.config.get("truenas", {}).get("api_key")
     if not api_key:
         raise SystemExit("truenas.api_key is required for lab candidate validation; set it in the local lab config")
+    doctor_truenas(lab)
     configure_provider_configs(lab, distros)
     if {"ubuntu", "alma"}.issubset(set(distros)):
         run([str(ROOT / "scripts" / "release.py"), "test-staging", "--config", str(lab.run_dir / "release.json"), "--build-id", lab.build_id, "--execute"], lab.execute)
@@ -783,7 +933,7 @@ def destroy_lab(lab: Lab) -> None:
 
 def parse_args(argv: Iterable[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=["bootstrap-host", "create-linux", "create", "wait-linux", "publish-repo", "test-repo", "configure-truenas", "destroy"])
+    parser.add_argument("command", choices=["bootstrap-host", "create-linux", "create", "ensure-truenas", "wait-linux", "wait-truenas", "doctor-truenas", "publish-repo", "test-repo", "configure-truenas", "destroy"])
     parser.add_argument("--config", default="release/lab.example.json", type=Path)
     parser.add_argument("--build-id", default="manual")
     parser.add_argument("--artifacts", type=Path, help="artifact directory containing ubuntu/ and alma/ subdirectories")
@@ -801,8 +951,14 @@ def main(argv: Iterable[str] = sys.argv[1:]) -> int:
         create_linux_lab(lab)
     elif args.command == "create":
         create_lab(lab)
+    elif args.command == "ensure-truenas":
+        ensure_persistent_truenas(lab)
     elif args.command == "wait-linux":
         wait_for_linux_vms(lab, ("ubuntu", "alma"))
+    elif args.command == "wait-truenas":
+        wait_truenas(lab)
+    elif args.command == "doctor-truenas":
+        doctor_truenas(lab)
     elif args.command == "publish-repo":
         artifacts = args.artifacts or Path(lab.config["lab"].get("artifact_root", "/srv/subvirt/artifacts")) / args.build_id
         publish_repo(lab, artifacts)

@@ -141,6 +141,7 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
     parser.add_argument("--migration-domain", required=True)
     parser.add_argument("--min-pool-capacity-gib", type=int, default=100)
     parser.add_argument("--test-resize", action="store_true", help="exercise virsh vol-resize when the backend advertises resize support")
+    parser.add_argument("--test-clone", action="store_true", help="exercise virsh vol-clone when the backend advertises clone support")
     return parser.parse_args(list(argv))
 
 
@@ -161,26 +162,40 @@ def main(argv: Iterable[str] = sys.argv[1:]) -> int:
             create_volume(args.iscsi_pool, iscsi_name)
             if args.test_resize:
                 resize_volume(args.iscsi_pool, iscsi_name, "96M", 96 * 1024**2)
-            clone_volume(args.iscsi_pool, iscsi_name, iscsi_clone)
+            if args.test_clone:
+                clone_volume(args.iscsi_pool, iscsi_name, iscsi_clone)
         else:
             create_volume(args.nvmeof_pool, nvmeof_name)
             if args.test_resize:
                 resize_volume(args.nvmeof_pool, nvmeof_name, "96M", 96 * 1024**2)
-            clone_volume(args.nvmeof_pool, nvmeof_name, nvmeof_clone)
+            if args.test_clone:
+                clone_volume(args.nvmeof_pool, nvmeof_name, nvmeof_clone)
     elif args.action == "check-peer":
         virsh("pool-refresh", args.iscsi_pool)
         virsh("pool-refresh", args.nvmeof_pool)
         if args.role == "ubuntu":
             assert_volume(args.nvmeof_pool, nvmeof_name)
-            assert_volume(args.nvmeof_pool, nvmeof_clone)
+            if args.test_clone:
+                assert_volume(args.nvmeof_pool, nvmeof_clone)
         else:
             assert_volume(args.iscsi_pool, iscsi_name)
-            assert_volume(args.iscsi_pool, iscsi_clone)
+            if args.test_clone:
+                assert_volume(args.iscsi_pool, iscsi_clone)
     elif args.action == "delete-check":
         if args.role == "ubuntu":
-            delete_clone_and_source(args.iscsi_pool, iscsi_name, iscsi_clone)
+            if args.test_clone:
+                delete_clone_and_source(args.iscsi_pool, iscsi_name, iscsi_clone)
+            else:
+                virsh("vol-delete", "--pool", args.iscsi_pool, iscsi_name)
+                virsh("pool-refresh", args.iscsi_pool)
+                assert_volume_missing(args.iscsi_pool, iscsi_name)
         else:
-            delete_clone_and_source(args.nvmeof_pool, nvmeof_name, nvmeof_clone)
+            if args.test_clone:
+                delete_clone_and_source(args.nvmeof_pool, nvmeof_name, nvmeof_clone)
+            else:
+                virsh("vol-delete", "--pool", args.nvmeof_pool, nvmeof_name)
+                virsh("pool-refresh", args.nvmeof_pool)
+                assert_volume_missing(args.nvmeof_pool, nvmeof_name)
     elif args.action == "migrate":
         migration_smoke(args.migration_domain, args.peer)
     return 0

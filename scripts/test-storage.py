@@ -283,7 +283,19 @@ def select_migration_machine(local_emulator: str, peer: str, requested: str) -> 
     return common[0]
 
 
+def pci_controller_xml(machine: str) -> str:
+    if machine.startswith("pc-q35"):
+        return """    <controller type='pci' index='0' model='pcie-root'/>
+    <controller type='pci' index='1' model='pcie-root-port'>
+      <model name='pcie-root-port'/>
+      <target chassis='1' port='0x10'/>
+    </controller>
+"""
+    return "    <controller type='pci' index='0' model='pci-root'/>\n"
+
+
 def domain_xml(domain: str, disk_path: str, emulator: str, machine: str) -> str:
+    pci_controllers = pci_controller_xml(machine)
     return f"""<domain type='kvm'>
   <name>{domain}</name>
   <memory unit='MiB'>256</memory>
@@ -303,7 +315,7 @@ def domain_xml(domain: str, disk_path: str, emulator: str, machine: str) -> str:
   <on_crash>destroy</on_crash>
   <devices>
     <emulator>{emulator}</emulator>
-    <disk type='block' device='disk'>
+{pci_controllers}    <disk type='block' device='disk'>
       <driver name='qemu' type='raw' cache='none' io='native'/>
       <source dev='{disk_path}'/>
       <target dev='vda' bus='virtio'/>

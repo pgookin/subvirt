@@ -63,7 +63,12 @@ def ssh_identity_args(config: dict) -> list[str]:
 
 
 def ssh_args(config: dict) -> list[str]:
-    return ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", *ssh_identity_args(config)]
+    args = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new"]
+    known_hosts = config.get("ssh", {}).get("known_hosts_file")
+    if known_hosts:
+        args.extend(["-o", f"UserKnownHostsFile={Path(known_hosts).expanduser()}"])
+    args.extend(ssh_identity_args(config))
+    return args
 
 
 def remote(host: str, command: str, ctx_or_execute) -> None:

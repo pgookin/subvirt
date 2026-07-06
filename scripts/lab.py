@@ -866,6 +866,7 @@ def write_run_release_config(lab: Lab) -> None:
     release = load_config(Path(lab.config["lab"].get("release_template", ROOT / "release" / "release.example.json")))
     release["hosts"]["build"] = socket.gethostname()
     release.setdefault("ssh", {})["identity_files"] = lab.config["lab"].get("ssh_identity_files", [])
+    release["ssh"]["known_hosts_file"] = str(lab.run_dir / "known_hosts")
     release["project"]["source_mode"] = "rsync"
     release["project"]["source_path"] = str(ROOT)
     release["project"].setdefault("rsync_excludes", [".git", "build", "dist", "provider-build", ".venv-vnc"])

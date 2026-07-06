@@ -189,6 +189,26 @@ def volume_path(pool: str, name: str) -> str:
     return virsh("vol-path", "--pool", pool, name).strip()
 
 
+def remote_volume_path(peer: str, pool: str, name: str) -> str:
+    return remote_virsh(peer, "vol-path", "--pool", pool, name).strip()
+
+
+def stable_device_path(volume: str) -> str:
+    return f"/dev/subvirt-storage/{volume}"
+
+
+def link_device(actual: str, link: str, peer: str | None = None) -> None:
+    parent = str(Path(link).parent)
+    if peer:
+        remote(peer, "install", "-d", "-m", "0755", parent)
+        remote(peer, "ln", "-sfn", actual, link)
+        remote(peer, "test", "-e", link)
+    else:
+        run(["install", "-d", "-m", "0755", parent])
+        run(["ln", "-sfn", actual, link])
+        run(["test", "-e", link])
+
+
 def wait_for_domain_state(domain: str, state: str, timeout: int = 60, peer: str | None = None) -> None:
     deadline = time.time() + timeout
     last = ""
@@ -370,7 +390,23 @@ def remote_domain_exists(peer: str, domain: str) -> bool:
     return domain in remote_virsh(peer, "list", "--all")
 
 
-def cleanup_migration(domain: str, peer: str, pool: str, volume: str, peer_emulator_alias: str | None = None) -> None:
+def cleanup_migration(
+    domain: str,
+    peer: str,
+    pool: str,
+    volume: str,
+    peer_emulator_alias: str | None = None,
+    stable_path: str | None = None,
+) -> None:
+    if stable_path:
+        try:
+            remote(peer, "rm", "-f", stable_path)
+        except subprocess.CalledProcessError:
+            pass
+        try:
+            run(["rm", "-f", stable_path])
+        except subprocess.CalledProcessError:
+            pass
     if remote_domain_exists(peer, domain):
         try:
             remote_virsh(peer, "destroy", domain)
@@ -405,15 +441,19 @@ def migration_smoke(args: argparse.Namespace) -> None:
 
     create_volume(args.iscsi_pool, volume, args.migration_volume_size)
     peer_alias = None
+    stable_path = stable_device_path(volume)
     try:
-        disk_path = volume_path(args.iscsi_pool, volume)
-        run(["qemu-img", "convert", "-O", "raw", str(image), disk_path])
+        local_path = volume_path(args.iscsi_pool, volume)
+        link_device(local_path, stable_path)
+        run(["qemu-img", "convert", "-O", "raw", str(image), stable_path])
         virsh("pool-refresh", args.iscsi_pool)
         remote_ensure_pool(args.peer, args.iscsi_pool, args.iscsi_pool_xml)
-        remote_wait_for_path(args.peer, disk_path)
+        remote_path = remote_volume_path(args.peer, args.iscsi_pool, volume)
+        remote_wait_for_path(args.peer, remote_path)
+        link_device(remote_path, stable_path, peer=args.peer)
 
         peer_alias = emulator if ensure_peer_emulator(args.peer, emulator) else None
-        define_domain(domain, disk_path, emulator, machine)
+        define_domain(domain, stable_path, emulator, machine)
         virsh("start", domain)
         wait_for_domain_state(domain, "running")
         migration_uri = f"qemu+ssh://{args.peer}/system"
@@ -439,10 +479,10 @@ def migration_smoke(args: argparse.Namespace) -> None:
         wait_for_domain_absent(domain)
         wait_for_domain_state(domain, "running", peer=args.peer)
         remote_xml = remote_virsh(args.peer, "dumpxml", domain)
-        if disk_path not in remote_xml:
-            raise RuntimeError(f"migrated domain XML does not reference expected shared disk path {disk_path}")
+        if stable_path not in remote_xml:
+            raise RuntimeError(f"migrated domain XML does not reference expected shared disk path {stable_path}")
     finally:
-        cleanup_migration(domain, args.peer, args.iscsi_pool, volume, peer_alias)
+        cleanup_migration(domain, args.peer, args.iscsi_pool, volume, peer_alias, stable_path)
 
 
 def parse_args(argv: Iterable[str]) -> argparse.Namespace:

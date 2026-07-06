@@ -30,14 +30,14 @@ The current package path has validated these workflows in lab environments:
 ## Known Limitations
 
 - Full ephemeral CI can create fresh Linux test VMs, but fully unattended TrueNAS VM setup is still pending.
-- Automated live-migration validation is planned but not yet enabled in the default release gate.
+- Automated live-migration validation exists as an opt-in iSCSI-backed smoke gate and is not enabled in the default release gate.
 - General provider-level snapshot create/list/delete support is planned but not implemented.
 - Volume shrinking and resize `--allocate` are intentionally unsupported.
 
 ## Next Work
 
 - Finish the full ephemeral lab with TrueNAS included.
-- Add the automated migration gate using a disposable guest.
+- Stabilize and then enable the disposable-guest migration gate by default.
 - Implement general provider-level zvol snapshot management.
 - Define and enforce package retention for public repositories.
 - Add stronger automated delete dependency tests after package rebuild.

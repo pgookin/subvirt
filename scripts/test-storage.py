@@ -9,8 +9,13 @@ for inspection.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import os
+from pathlib import Path
 import subprocess
 import sys
+import time
+import urllib.request
 from typing import Iterable
 
 
@@ -41,6 +46,10 @@ def virsh(*args: str) -> str:
 
 def virsh_expect_failure(expected: str | None, *args: str) -> str:
     return run_expect_failure(["virsh", "-c", "qemu:///system", *args], expected)
+
+
+def remote_virsh(peer: str, *args: str) -> str:
+    return run(["ssh", "-o", "BatchMode=yes", peer, "virsh", "-c", "qemu:///system", *args])
 
 
 def ensure_pool(name: str, xml: str) -> None:
@@ -120,12 +129,156 @@ def delete_clone_and_source(pool: str, source: str, clone: str) -> None:
     assert_volume_missing(pool, source)
 
 
-def migration_smoke(domain: str, peer: str) -> None:
-    doms = virsh("list", "--all")
-    if domain not in doms:
-        raise RuntimeError(f"migration test domain {domain!r} is not defined")
+DEFAULT_MIGRATION_IMAGE_URL = "https://download.cirros-cloud.net/0.6.2/cirros-0.6.2-x86_64-disk.img"
+
+
+def volume_path(pool: str, name: str) -> str:
+    return virsh("vol-path", "--pool", pool, name).strip()
+
+
+def wait_for_domain_state(domain: str, state: str, timeout: int = 60, peer: str | None = None) -> None:
+    deadline = time.time() + timeout
+    last = ""
+    while time.time() < deadline:
+        try:
+            last = remote_virsh(peer, "domstate", domain) if peer else virsh("domstate", domain)
+            if state in last.lower():
+                return
+        except subprocess.CalledProcessError as exc:
+            last = str(exc)
+        time.sleep(1)
+    location = peer or "local"
+    raise RuntimeError(f"domain {domain!r} did not reach state {state!r} on {location}: {last}")
+
+
+def wait_for_domain_absent(domain: str, timeout: int = 30) -> None:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        doms = virsh("list", "--all")
+        if domain not in doms:
+            return
+        time.sleep(1)
+    raise RuntimeError(f"domain {domain!r} still exists on source after migration")
+
+
+def download_migration_image(url: str, sha256: str) -> Path:
+    cache = Path(os.environ.get("SUBVIRT_TEST_CACHE", "/var/cache/subvirt-tests"))
+    cache.mkdir(parents=True, exist_ok=True)
+    name = url.rsplit("/", 1)[-1] or "migration-image.img"
+    path = cache / name
+    if not path.exists():
+        print(f"+ download {url} {path}", flush=True)
+        with urllib.request.urlopen(url, timeout=60) as response, path.open("wb") as handle:
+            while True:
+                chunk = response.read(1024 * 1024)
+                if not chunk:
+                    break
+                handle.write(chunk)
+    if sha256:
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        if digest.lower() != sha256.lower():
+            raise RuntimeError(f"migration image checksum mismatch for {path}: expected {sha256}, got {digest}")
+    return path
+
+
+def domain_xml(domain: str, disk_path: str) -> str:
+    return f"""<domain type='kvm'>
+  <name>{domain}</name>
+  <memory unit='MiB'>256</memory>
+  <currentMemory unit='MiB'>256</currentMemory>
+  <vcpu placement='static'>1</vcpu>
+  <os>
+    <type arch='x86_64' machine='pc'>hvm</type>
+    <boot dev='hd'/>
+  </os>
+  <features>
+    <acpi/>
+  </features>
+  <cpu mode='host-model'/>
+  <clock offset='utc'/>
+  <on_poweroff>destroy</on_poweroff>
+  <on_reboot>restart</on_reboot>
+  <on_crash>destroy</on_crash>
+  <devices>
+    <emulator>/usr/bin/qemu-system-x86_64</emulator>
+    <disk type='block' device='disk'>
+      <driver name='qemu' type='raw' cache='none' io='native'/>
+      <source dev='{disk_path}'/>
+      <target dev='vda' bus='virtio'/>
+    </disk>
+    <serial type='pty'>
+      <target type='isa-serial' port='0'/>
+    </serial>
+    <console type='pty'>
+      <target type='serial' port='0'/>
+    </console>
+    <memballoon model='virtio'/>
+  </devices>
+</domain>
+"""
+
+
+def define_domain(domain: str, disk_path: str) -> Path:
+    xml_path = Path(f"/tmp/{domain}.xml")
+    xml_path.write_text(domain_xml(domain, disk_path), encoding="utf-8")
+    virsh("define", str(xml_path))
+    return xml_path
+
+
+def local_domain_exists(domain: str) -> bool:
+    return domain in virsh("list", "--all")
+
+
+def remote_domain_exists(peer: str, domain: str) -> bool:
+    return domain in remote_virsh(peer, "list", "--all")
+
+
+def cleanup_migration(domain: str, peer: str, pool: str, volume: str) -> None:
+    if remote_domain_exists(peer, domain):
+        remote_virsh(peer, "destroy", domain)
+        remote_virsh(peer, "undefine", domain)
+    if local_domain_exists(domain):
+        virsh("destroy", domain)
+        virsh("undefine", domain)
+    virsh("pool-refresh", pool)
+    if volume in virsh("vol-list", pool):
+        virsh("vol-delete", "--pool", pool, volume)
+        virsh("pool-refresh", pool)
+
+
+def migration_smoke(args: argparse.Namespace) -> None:
+    domain = args.migration_domain
+    volume = f"ci-{args.build_id}-migration"
+    image = download_migration_image(args.migration_image_url, args.migration_image_sha256)
+
+    create_volume(args.iscsi_pool, volume, args.migration_volume_size)
+    disk_path = volume_path(args.iscsi_pool, volume)
+    run(["qemu-img", "convert", "-O", "raw", str(image), disk_path])
+    virsh("pool-refresh", args.iscsi_pool)
+    remote_virsh(args.peer, "pool-refresh", args.iscsi_pool)
+
+    define_domain(domain, disk_path)
     virsh("start", domain)
-    virsh("migrate", "--live", "--persistent", "--undefinesource", domain, f"qemu+ssh://{peer}/system")
+    wait_for_domain_state(domain, "running")
+    run([
+        "timeout",
+        "180",
+        "virsh",
+        "-c",
+        "qemu:///system",
+        "migrate",
+        "--live",
+        "--persistent",
+        "--undefinesource",
+        domain,
+        f"qemu+ssh://{args.peer}/system",
+    ])
+    wait_for_domain_absent(domain)
+    wait_for_domain_state(domain, "running", peer=args.peer)
+    remote_xml = remote_virsh(args.peer, "dumpxml", domain)
+    if disk_path not in remote_xml:
+        raise RuntimeError(f"migrated domain XML does not reference expected shared disk path {disk_path}")
+    cleanup_migration(domain, args.peer, args.iscsi_pool, volume)
 
 
 def parse_args(argv: Iterable[str]) -> argparse.Namespace:
@@ -139,6 +292,9 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
     parser.add_argument("--iscsi-pool-xml", required=True)
     parser.add_argument("--nvmeof-pool-xml", required=True)
     parser.add_argument("--migration-domain", required=True)
+    parser.add_argument("--migration-image-url", default=DEFAULT_MIGRATION_IMAGE_URL)
+    parser.add_argument("--migration-image-sha256", default="")
+    parser.add_argument("--migration-volume-size", default="512M")
     parser.add_argument("--min-pool-capacity-gib", type=int, default=100)
     parser.add_argument("--test-resize", action="store_true", help="exercise virsh vol-resize when the backend advertises resize support")
     parser.add_argument("--test-clone", action="store_true", help="exercise virsh vol-clone when the backend advertises clone support")
@@ -197,7 +353,7 @@ def main(argv: Iterable[str] = sys.argv[1:]) -> int:
                 virsh("pool-refresh", args.nvmeof_pool)
                 assert_volume_missing(args.nvmeof_pool, nvmeof_name)
     elif args.action == "migrate":
-        migration_smoke(args.migration_domain, args.peer)
+        migration_smoke(args)
     return 0
 
 

@@ -387,6 +387,12 @@ def storage_base_args(ctx: Context) -> str:
         nvmeof_xml=q(t["nvmeof_pool_xml"]),
         domain=q(t["migration_domain"]),
     )
+    if "migration_image_url" in t:
+        args += f" --migration-image-url {q(t['migration_image_url'])}"
+    if "migration_image_sha256" in t:
+        args += f" --migration-image-sha256 {q(t['migration_image_sha256'])}"
+    if "migration_volume_size" in t:
+        args += f" --migration-volume-size {q(t['migration_volume_size'])}"
     if "min_pool_capacity_gib" in t:
         args += f" --min-pool-capacity-gib {int(t['min_pool_capacity_gib'])}"
     return args

@@ -38,6 +38,9 @@
     "iscsi_pool_xml": "examples/storage-pool-tank-iscsi.xml",
     "nvmeof_pool_xml": "examples/storage-pool-tank-nvmeof.xml",
     "migration_domain": "subvirt-migration-smoke",
+    "migration_image_url": "https://download.cirros-cloud.net/0.6.2/cirros-0.6.2-x86_64-disk.img",
+    "migration_image_sha256": "",
+    "migration_volume_size": "512M",
     "run_migration": false
   },
   "upstream": {

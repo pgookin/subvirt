@@ -727,7 +727,7 @@ apt-get clean
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get --fix-broken install -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold
 DEBIAN_FRONTEND=noninteractive apt-get full-upgrade -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold
-DEBIAN_FRONTEND=noninteractive apt-get install -y truenas-libvirt-provider libvirt-daemon-system libvirt-daemon-driver-qemu libvirt-daemon-driver-storage-truenas virt-manager virtinst open-iscsi nvme-cli
+DEBIAN_FRONTEND=noninteractive apt-get install -y truenas-libvirt-provider libvirt-daemon-system libvirt-daemon-driver-qemu libvirt-daemon-driver-storage-truenas virt-manager virtinst open-iscsi nvme-cli qemu-utils
 if ! modprobe nvme-tcp 2>/dev/null; then
   DEBIAN_FRONTEND=noninteractive apt-get install -y "linux-modules-extra-$(uname -r)"
   modprobe nvme-tcp
@@ -763,7 +763,7 @@ gpgcheck=1
 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-subvirt-staging
 EOF
 dnf upgrade -y
-dnf install -y --disablerepo=subvirt-lab libvirt-daemon-kvm libvirt-daemon-driver-storage-truenas virt-manager virt-manager-common virt-install iscsi-initiator-utils nvme-cli kmod
+dnf install -y --disablerepo=subvirt-lab libvirt-daemon-kvm libvirt-daemon-driver-storage-truenas virt-manager virt-manager-common virt-install iscsi-initiator-utils nvme-cli qemu-img kmod
 dnf install -y --disablerepo=subvirt-stable truenas-libvirt-provider
 modprobe nvme-tcp
 
@@ -793,7 +793,7 @@ apt-get clean
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get --fix-broken install -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold
 DEBIAN_FRONTEND=noninteractive apt-get full-upgrade -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold
-DEBIAN_FRONTEND=noninteractive apt-get install -y truenas-libvirt-provider libvirt-daemon-system libvirt-daemon-driver-qemu libvirt-daemon-driver-storage-truenas virt-manager virtinst open-iscsi nvme-cli
+DEBIAN_FRONTEND=noninteractive apt-get install -y truenas-libvirt-provider libvirt-daemon-system libvirt-daemon-driver-qemu libvirt-daemon-driver-storage-truenas virt-manager virtinst open-iscsi nvme-cli qemu-utils
 if ! modprobe nvme-tcp 2>/dev/null; then
   DEBIAN_FRONTEND=noninteractive apt-get install -y "linux-modules-extra-$(uname -r)"
   modprobe nvme-tcp
@@ -820,7 +820,7 @@ gpgcheck=1
 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-subvirt
 EOF
 dnf upgrade -y
-dnf install -y truenas-libvirt-provider libvirt-daemon-kvm libvirt-daemon-driver-storage-truenas virt-manager virt-manager-common virt-install iscsi-initiator-utils nvme-cli kmod
+dnf install -y truenas-libvirt-provider libvirt-daemon-kvm libvirt-daemon-driver-storage-truenas virt-manager virt-manager-common virt-install iscsi-initiator-utils nvme-cli qemu-img kmod
 modprobe nvme-tcp
 
 systemctl daemon-reload
@@ -913,6 +913,9 @@ def write_run_release_config(lab: Lab) -> None:
     release["tests"]["iscsi_pool_xml"] = str(lab.run_dir / "iscsi-pool.xml")
     release["tests"]["nvmeof_pool_xml"] = str(lab.run_dir / "nvmeof-pool.xml")
     release["tests"]["run_migration"] = bool(tests.get("run_migration", False))
+    for key in ("migration_domain", "migration_image_url", "migration_image_sha256", "migration_volume_size"):
+        if key in tests:
+            release["tests"][key] = tests[key]
     if "min_pool_capacity_gib" in tests:
         release["tests"]["min_pool_capacity_gib"] = int(tests["min_pool_capacity_gib"])
     iscsi_pool = tests["iscsi_truenas_pool"]

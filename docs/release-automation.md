@@ -199,11 +199,11 @@ There is no expected webhook-style event from Ubuntu or AlmaLinux for new libvir
 - AlmaLinux creates, resizes, clones, and delete-validates an NVMe-oF test volume.
 - Each host refreshes and sees the other host's source and clone volumes before cleanup.
 - Source volume deletion fails without `--delete-snapshots` and succeeds with it after the clone is removed.
-- A configured throwaway VM live-migrates to the peer host when `tests.run_migration` is true.
+- A disposable iSCSI-backed guest is created on Ubuntu and live-migrated to AlmaLinux when `tests.run_migration` is true.
 
 The test script creates unique volume names containing the test ID. By default the test ID is the build ID, but `--test-id` can override it when rerunning tests against the same artifact directory. Successful full storage gates clean up their test volumes; failed runs leave volumes behind for inspection.
 
-Set `tests.run_migration` to `true` once `tests.migration_domain` names a throwaway VM that exists on the Ubuntu test host and can live-migrate to the AlmaLinux test host.
+Set `tests.run_migration` to `true` to enable the live-migration smoke gate. The gate downloads the configured `tests.migration_image_url`, writes it into a temporary Subvirt iSCSI volume sized by `tests.migration_volume_size`, defines `tests.migration_domain` on the Ubuntu test host, live-migrates it to the AlmaLinux test host over `qemu+ssh`, verifies it is running on the destination, and then removes the guest and volume.
 
 ## Current Implementation Notes
 

@@ -105,6 +105,10 @@
     "iscsi_pool_name": "truenas-iscsi",
     "nvmeof_pool_name": "truenas-nvmeof",
     "target_path": "/dev/disk/by-id",
+    "migration_domain": "subvirt-migration-smoke",
+    "migration_image_url": "https://download.cirros-cloud.net/0.6.2/cirros-0.6.2-x86_64-disk.img",
+    "migration_image_sha256": "",
+    "migration_volume_size": "512M",
     "run_migration": false,
     "min_pool_capacity_gib": 50
   }

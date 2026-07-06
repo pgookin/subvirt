@@ -732,6 +732,15 @@ if ! modprobe nvme-tcp 2>/dev/null; then
   DEBIAN_FRONTEND=noninteractive apt-get install -y "linux-modules-extra-$(uname -r)"
   modprobe nvme-tcp
 fi
+
+systemctl daemon-reload
+for unit in virtqemud.socket virtstoraged.socket virtproxyd.socket virtlogd.socket virtlockd.socket; do
+  systemctl list-unit-files "$unit" --no-legend | grep -q . && systemctl enable --now "$unit" || true
+done
+for unit in virtstoraged.service libvirtd.service; do
+  systemctl list-unit-files "$unit" --no-legend | grep -q . && {{ systemctl restart "$unit"; break; }}
+done
+systemctl list-unit-files virtqemud.service --no-legend | grep -q . && systemctl restart virtqemud.service || true
 """
         alma_cmd = f"""
 set -euo pipefail
@@ -757,6 +766,15 @@ dnf upgrade -y
 dnf install -y --disablerepo=subvirt-lab libvirt-daemon-kvm libvirt-daemon-driver-storage-truenas virt-manager virt-manager-common virt-install iscsi-initiator-utils nvme-cli kmod
 dnf install -y --disablerepo=subvirt-stable truenas-libvirt-provider
 modprobe nvme-tcp
+
+systemctl daemon-reload
+for unit in virtqemud.socket virtstoraged.socket virtproxyd.socket virtlogd.socket virtlockd.socket; do
+  systemctl list-unit-files "$unit" --no-legend | grep -q . && systemctl enable --now "$unit" || true
+done
+for unit in virtstoraged.service libvirtd.service; do
+  systemctl list-unit-files "$unit" --no-legend | grep -q . && {{ systemctl restart "$unit"; break; }}
+done
+systemctl list-unit-files virtqemud.service --no-legend | grep -q . && systemctl restart virtqemud.service || true
 """
     else:
         ubuntu_cmd = f"""
@@ -780,6 +798,15 @@ if ! modprobe nvme-tcp 2>/dev/null; then
   DEBIAN_FRONTEND=noninteractive apt-get install -y "linux-modules-extra-$(uname -r)"
   modprobe nvme-tcp
 fi
+
+systemctl daemon-reload
+for unit in virtqemud.socket virtstoraged.socket virtproxyd.socket virtlogd.socket virtlockd.socket; do
+  systemctl list-unit-files "$unit" --no-legend | grep -q . && systemctl enable --now "$unit" || true
+done
+for unit in virtstoraged.service libvirtd.service; do
+  systemctl list-unit-files "$unit" --no-legend | grep -q . && {{ systemctl restart "$unit"; break; }}
+done
+systemctl list-unit-files virtqemud.service --no-legend | grep -q . && systemctl restart virtqemud.service || true
 """
         alma_cmd = f"""
 set -euo pipefail
@@ -795,6 +822,15 @@ EOF
 dnf upgrade -y
 dnf install -y truenas-libvirt-provider libvirt-daemon-kvm libvirt-daemon-driver-storage-truenas virt-manager virt-manager-common virt-install iscsi-initiator-utils nvme-cli kmod
 modprobe nvme-tcp
+
+systemctl daemon-reload
+for unit in virtqemud.socket virtstoraged.socket virtproxyd.socket virtlogd.socket virtlockd.socket; do
+  systemctl list-unit-files "$unit" --no-legend | grep -q . && systemctl enable --now "$unit" || true
+done
+for unit in virtstoraged.service libvirtd.service; do
+  systemctl list-unit-files "$unit" --no-legend | grep -q . && {{ systemctl restart "$unit"; break; }}
+done
+systemctl list-unit-files virtqemud.service --no-legend | grep -q . && systemctl restart virtqemud.service || true
 """
     if "ubuntu" in distros:
         ssh(f"root@{ubuntu}", ubuntu_cmd, lab)

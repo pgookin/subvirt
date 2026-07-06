@@ -48,8 +48,22 @@ def virsh_expect_failure(expected: str | None, *args: str) -> str:
     return run_expect_failure(["virsh", "-c", "qemu:///system", *args], expected)
 
 
+def ssh_args(peer: str) -> list[str]:
+    argv = ["ssh", "-o", "BatchMode=yes"]
+    identity = os.environ.get("SUBVIRT_TEST_SSH_IDENTITY_FILE", "")
+    known_hosts = os.environ.get("SUBVIRT_TEST_SSH_KNOWN_HOSTS_FILE", "")
+    if identity:
+        argv.extend(["-i", identity])
+    if known_hosts:
+        argv.extend(["-o", f"UserKnownHostsFile={known_hosts}", "-o", "StrictHostKeyChecking=yes"])
+    else:
+        argv.extend(["-o", "StrictHostKeyChecking=accept-new"])
+    argv.append(peer)
+    return argv
+
+
 def remote_virsh(peer: str, *args: str) -> str:
-    return run(["ssh", "-o", "BatchMode=yes", peer, "virsh", "-c", "qemu:///system", *args])
+    return run([*ssh_args(peer), "virsh", "-c", "qemu:///system", *args])
 
 
 def ensure_pool(name: str, xml: str) -> None:
@@ -260,6 +274,10 @@ def migration_smoke(args: argparse.Namespace) -> None:
     define_domain(domain, disk_path)
     virsh("start", domain)
     wait_for_domain_state(domain, "running")
+    migration_uri = f"qemu+ssh://{args.peer}/system"
+    identity = os.environ.get("SUBVIRT_TEST_SSH_IDENTITY_FILE", "")
+    if identity:
+        migration_uri += f"?keyfile={identity}&no_verify=1"
     run([
         "timeout",
         "180",
@@ -271,7 +289,7 @@ def migration_smoke(args: argparse.Namespace) -> None:
         "--persistent",
         "--undefinesource",
         domain,
-        f"qemu+ssh://{args.peer}/system",
+        migration_uri,
     ])
     wait_for_domain_absent(domain)
     wait_for_domain_state(domain, "running", peer=args.peer)
@@ -295,6 +313,8 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
     parser.add_argument("--migration-image-url", default=DEFAULT_MIGRATION_IMAGE_URL)
     parser.add_argument("--migration-image-sha256", default="")
     parser.add_argument("--migration-volume-size", default="512M")
+    parser.add_argument("--ssh-identity-file", default="")
+    parser.add_argument("--ssh-known-hosts-file", default="")
     parser.add_argument("--min-pool-capacity-gib", type=int, default=100)
     parser.add_argument("--test-resize", action="store_true", help="exercise virsh vol-resize when the backend advertises resize support")
     parser.add_argument("--test-clone", action="store_true", help="exercise virsh vol-clone when the backend advertises clone support")
@@ -303,6 +323,10 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
 
 def main(argv: Iterable[str] = sys.argv[1:]) -> int:
     args = parse_args(argv)
+    if args.ssh_identity_file:
+        os.environ["SUBVIRT_TEST_SSH_IDENTITY_FILE"] = args.ssh_identity_file
+    if args.ssh_known_hosts_file:
+        os.environ["SUBVIRT_TEST_SSH_KNOWN_HOSTS_FILE"] = args.ssh_known_hosts_file
     ensure_pool(args.iscsi_pool, args.iscsi_pool_xml)
     ensure_pool(args.nvmeof_pool, args.nvmeof_pool_xml)
     assert_pool_capacity(args.iscsi_pool, args.min_pool_capacity_gib)

@@ -377,6 +377,10 @@ def verify_public_stable(ctx: Context) -> None:
     for url in urls:
         check_url(url, ctx.execute)
 
+MIGRATION_SSH_IDENTITY_REMOTE = "/root/.ssh/subvirt_migration_key"
+MIGRATION_SSH_KNOWN_HOSTS_REMOTE = "/root/.ssh/subvirt_known_hosts"
+
+
 def storage_base_args(ctx: Context) -> str:
     t = tests(ctx)
     args = "--build-id {build_id} --iscsi-pool {iscsi_pool} --nvmeof-pool {nvmeof_pool} --iscsi-pool-xml {iscsi_xml} --nvmeof-pool-xml {nvmeof_xml} --migration-domain {domain}".format(
@@ -393,6 +397,10 @@ def storage_base_args(ctx: Context) -> str:
         args += f" --migration-image-sha256 {q(t['migration_image_sha256'])}"
     if "migration_volume_size" in t:
         args += f" --migration-volume-size {q(t['migration_volume_size'])}"
+    if ctx.config.get("ssh", {}).get("identity_files"):
+        args += f" --ssh-identity-file {q(MIGRATION_SSH_IDENTITY_REMOTE)}"
+    if ctx.config.get("ssh", {}).get("known_hosts_file"):
+        args += f" --ssh-known-hosts-file {q(MIGRATION_SSH_KNOWN_HOSTS_REMOTE)}"
     if "min_pool_capacity_gib" in t:
         args += f" --min-pool-capacity-gib {int(t['min_pool_capacity_gib'])}"
     return args
@@ -406,6 +414,23 @@ def sync_storage_pool_xml(ctx: Context, host: str) -> None:
         rsync_to(path, host, path, ctx)
 
 
+def sync_migration_ssh_material(ctx: Context, host: str) -> None:
+    ssh = ctx.config.get("ssh", {})
+    identity_files = ssh.get("identity_files") or []
+    if not identity_files:
+        if tests(ctx).get("run_migration", False):
+            raise SystemExit("tests.run_migration requires ssh.identity_files so the source guest can reach the destination guest")
+        return
+    identity = str(identity_files[0])
+    known_hosts = ssh.get("known_hosts_file")
+    remote(host, "install -d -m 0700 /root/.ssh", ctx)
+    rsync_to(identity, host, MIGRATION_SSH_IDENTITY_REMOTE, ctx)
+    remote(host, f"chmod 0600 {q(MIGRATION_SSH_IDENTITY_REMOTE)}", ctx)
+    if known_hosts:
+        rsync_to(str(known_hosts), host, MIGRATION_SSH_KNOWN_HOSTS_REMOTE, ctx)
+        remote(host, f"chmod 0644 {q(MIGRATION_SSH_KNOWN_HOSTS_REMOTE)}", ctx)
+
+
 def run_storage_gate(ctx: Context) -> None:
     p = project(ctx)
     ubuntu = hosts(ctx)["ubuntu_test"]
@@ -413,6 +438,7 @@ def run_storage_gate(ctx: Context) -> None:
     for host in (ubuntu, alma):
         remote_checkout(ctx, host)
         sync_storage_pool_xml(ctx, host)
+        sync_migration_ssh_material(ctx, host)
     base = storage_base_args(ctx)
     ubuntu_create = " && ".join([
         f"cd {q(p['workdir'])}",

@@ -203,7 +203,7 @@ There is no expected webhook-style event from Ubuntu or AlmaLinux for new libvir
 
 The test script creates unique volume names containing the test ID. By default the test ID is the build ID, but `--test-id` can override it when rerunning tests against the same artifact directory. Successful full storage gates clean up their test volumes; failed runs leave volumes behind for inspection.
 
-Set `tests.run_migration` to `true` to enable the live-migration smoke gate. The gate downloads the configured `tests.migration_image_url`, writes it into a temporary Subvirt iSCSI volume sized by `tests.migration_volume_size`, defines `tests.migration_domain` on the Ubuntu test host, live-migrates it to the AlmaLinux test host over `qemu+ssh`, verifies it is running on the destination, and then removes the guest and volume.
+Set `tests.run_migration` to `true` to enable the live-migration smoke gate. The gate downloads the configured `tests.migration_image_url`, writes it into a temporary Subvirt iSCSI volume sized by `tests.migration_volume_size`, defines `tests.migration_domain` on the Ubuntu test host, live-migrates it to the AlmaLinux test host over `qemu+ssh`, verifies it is running on the destination, and then removes the guest and volume. Migration requires `ssh.identity_files`; the release harness copies the first configured identity and run-local known_hosts file into both test guests for source-to-destination SSH.
 
 ## Current Implementation Notes
 

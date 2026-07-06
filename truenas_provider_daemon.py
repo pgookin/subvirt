@@ -944,7 +944,14 @@ class TrueNASLibvirtProvider:
 
     def _disconnect_iscsi(self, name: str) -> None:
         target_iqn = f"iqn.2005-10.org.freenas.ctl:{self._target_name(name)}"
+        # A deleted/recreated TrueNAS extent can keep the same target IQN while
+        # exposing a new LUN identity.  Clear both live sessions and node records
+        # so the next pool refresh performs a fresh login and device discovery.
+        run_command(["iscsiadm", "-m", "session", "-T", target_iqn, "--logout"], check=False)
         run_command(["iscsiadm", "-m", "node", "-T", target_iqn, "--logout"], check=False)
+        run_command(["iscsiadm", "-m", "node", "-T", target_iqn, "--op", "delete"], check=False)
+        if tool_exists("udevadm"):
+            run_command(["udevadm", "settle", "--timeout=10"], check=False)
 
     def _disconnect_nvme(self, name: str) -> None:
         with self._client() as client:

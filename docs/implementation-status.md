@@ -30,7 +30,7 @@ The current package path has validated these workflows in lab environments:
 ## Known Limitations
 
 - Full ephemeral CI can create fresh Linux test VMs, but fully unattended TrueNAS VM setup is still pending.
-- Automated live-migration validation exists as an opt-in iSCSI-backed smoke gate and is not enabled in the default release gate.
+- Automated live-migration validation exists as an opt-in iSCSI-backed smoke gate, checks QEMU machine-type compatibility, and is not enabled in the default release gate.
 - General provider-level snapshot create/list/delete support is planned but not implemented.
 - Volume shrinking and resize `--allocate` are intentionally unsupported.
 

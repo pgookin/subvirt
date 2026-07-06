@@ -109,6 +109,7 @@
     "migration_image_url": "https://download.cirros-cloud.net/0.6.2/cirros-0.6.2-x86_64-disk.img",
     "migration_image_sha256": "",
     "migration_volume_size": "512M",
+    "migration_machine": "auto",
     "run_migration": false,
     "min_pool_capacity_gib": 50
   }

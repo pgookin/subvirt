@@ -397,6 +397,8 @@ def storage_base_args(ctx: Context) -> str:
         args += f" --migration-image-sha256 {q(t['migration_image_sha256'])}"
     if "migration_volume_size" in t:
         args += f" --migration-volume-size {q(t['migration_volume_size'])}"
+    if "migration_machine" in t:
+        args += f" --migration-machine {q(t['migration_machine'])}"
     if ctx.config.get("ssh", {}).get("identity_files"):
         args += f" --ssh-identity-file {q(MIGRATION_SSH_IDENTITY_REMOTE)}"
     if ctx.config.get("ssh", {}).get("known_hosts_file"):

@@ -913,7 +913,7 @@ def write_run_release_config(lab: Lab) -> None:
     release["tests"]["iscsi_pool_xml"] = str(lab.run_dir / "iscsi-pool.xml")
     release["tests"]["nvmeof_pool_xml"] = str(lab.run_dir / "nvmeof-pool.xml")
     release["tests"]["run_migration"] = bool(tests.get("run_migration", False))
-    for key in ("migration_domain", "migration_image_url", "migration_image_sha256", "migration_volume_size"):
+    for key in ("migration_domain", "migration_image_url", "migration_image_sha256", "migration_volume_size", "migration_machine"):
         if key in tests:
             release["tests"][key] = tests[key]
     if "min_pool_capacity_gib" in tests:

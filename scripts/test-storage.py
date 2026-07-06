@@ -19,8 +19,13 @@ import urllib.request
 from typing import Iterable
 
 
+def q(argv: Iterable[str]) -> str:
+    import shlex
+    return " ".join(shlex.quote(str(item)) for item in argv)
+
+
 def run(argv: list[str]) -> str:
-    print("+ " + " ".join(argv), flush=True)
+    print("+ " + q(argv), flush=True)
     result = subprocess.run(argv, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
     if result.stdout:
         print(result.stdout, end="")
@@ -29,14 +34,14 @@ def run(argv: list[str]) -> str:
 
 
 def run_expect_failure(argv: list[str], expected: str | None = None) -> str:
-    print("+ " + " ".join(argv), flush=True)
+    print("+ " + q(argv), flush=True)
     result = subprocess.run(argv, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
     if result.stdout:
         print(result.stdout, end="")
     if result.returncode == 0:
-        raise RuntimeError(f"command unexpectedly succeeded: {' '.join(argv)}")
+        raise RuntimeError(f"command unexpectedly succeeded: {q(argv)}")
     if expected is not None and expected not in result.stdout:
-        raise RuntimeError(f"command failed without expected text {expected!r}: {' '.join(argv)}")
+        raise RuntimeError(f"command failed without expected text {expected!r}: {q(argv)}")
     return result.stdout
 
 
@@ -232,14 +237,49 @@ def ensure_peer_emulator(peer: str, emulator: str) -> bool:
     return True
 
 
-def domain_xml(domain: str, disk_path: str, emulator: str) -> str:
+UNSAFE_MACHINE_ALIASES = {"pc", "q35", "ubuntu", "ubuntu-q35", "none"}
+
+
+def machine_types(emulator: str, peer: str | None = None) -> tuple[list[str], set[str]]:
+    output = remote(peer, emulator, "-machine", "help") if peer else run([emulator, "-machine", "help"])
+    names: list[str] = []
+    deprecated: set[str] = set()
+    for line in output.splitlines():
+        parts = line.split()
+        if not parts or parts[0] == "Supported":
+            continue
+        name = parts[0]
+        names.append(name)
+        if "deprecated" in line:
+            deprecated.add(name)
+    return names, deprecated
+
+
+def select_migration_machine(local_emulator: str, peer: str, requested: str) -> str:
+    if requested and requested != "auto":
+        return requested
+    remote_emulator = first_existing_emulator(peer=peer)
+    local_names, local_deprecated = machine_types(local_emulator)
+    remote_names, remote_deprecated = machine_types(remote_emulator, peer=peer)
+    common = [name for name in local_names if name in set(remote_names) and name not in UNSAFE_MACHINE_ALIASES]
+    if not common:
+        raise RuntimeError(
+            "no common concrete QEMU machine type found; this hypervisor pair is not a valid live-migration baseline"
+        )
+    for name in common:
+        if name not in local_deprecated and name not in remote_deprecated:
+            return name
+    return common[0]
+
+
+def domain_xml(domain: str, disk_path: str, emulator: str, machine: str) -> str:
     return f"""<domain type='kvm'>
   <name>{domain}</name>
   <memory unit='MiB'>256</memory>
   <currentMemory unit='MiB'>256</currentMemory>
   <vcpu placement='static'>1</vcpu>
   <os>
-    <type arch='x86_64' machine='pc'>hvm</type>
+    <type arch='x86_64' machine='{machine}'>hvm</type>
     <boot dev='hd'/>
   </os>
   <features>
@@ -269,9 +309,9 @@ def domain_xml(domain: str, disk_path: str, emulator: str) -> str:
 """
 
 
-def define_domain(domain: str, disk_path: str, emulator: str) -> Path:
+def define_domain(domain: str, disk_path: str, emulator: str, machine: str) -> Path:
     xml_path = Path(f"/tmp/{domain}.xml")
-    xml_path.write_text(domain_xml(domain, disk_path, emulator), encoding="utf-8")
+    xml_path.write_text(domain_xml(domain, disk_path, emulator, machine), encoding="utf-8")
     virsh("define", str(xml_path))
     return xml_path
 
@@ -304,16 +344,18 @@ def migration_smoke(args: argparse.Namespace) -> None:
     volume = f"ci-{args.build_id}-migration"
     image = download_migration_image(args.migration_image_url, args.migration_image_sha256)
 
+    emulator = first_existing_emulator()
+    machine = select_migration_machine(emulator, args.peer, args.migration_machine)
+
     create_volume(args.iscsi_pool, volume, args.migration_volume_size)
     disk_path = volume_path(args.iscsi_pool, volume)
     run(["qemu-img", "convert", "-O", "raw", str(image), disk_path])
     virsh("pool-refresh", args.iscsi_pool)
     remote_virsh(args.peer, "pool-refresh", args.iscsi_pool)
 
-    emulator = first_existing_emulator()
     peer_alias = emulator if ensure_peer_emulator(args.peer, emulator) else None
     try:
-        define_domain(domain, disk_path, emulator)
+        define_domain(domain, disk_path, emulator, machine)
         virsh("start", domain)
         wait_for_domain_state(domain, "running")
         migration_uri = f"qemu+ssh://{args.peer}/system"
@@ -356,6 +398,7 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
     parser.add_argument("--migration-image-url", default=DEFAULT_MIGRATION_IMAGE_URL)
     parser.add_argument("--migration-image-sha256", default="")
     parser.add_argument("--migration-volume-size", default="512M")
+    parser.add_argument("--migration-machine", default="auto")
     parser.add_argument("--ssh-identity-file", default="")
     parser.add_argument("--ssh-known-hosts-file", default="")
     parser.add_argument("--min-pool-capacity-gib", type=int, default=100)

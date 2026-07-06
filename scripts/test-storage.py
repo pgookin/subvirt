@@ -398,6 +398,7 @@ def migration_smoke(args: argparse.Namespace) -> None:
         virsh("start", domain)
         wait_for_domain_state(domain, "running")
         migration_uri = f"qemu+ssh://{args.peer}/system"
+        migration_host = args.peer.rsplit("@", 1)[-1]
         identity = os.environ.get("SUBVIRT_TEST_SSH_IDENTITY_FILE", "")
         if identity:
             migration_uri += f"?keyfile={identity}&no_verify=1"
@@ -411,6 +412,8 @@ def migration_smoke(args: argparse.Namespace) -> None:
             "--live",
             "--persistent",
             "--undefinesource",
+            "--migrateuri",
+            f"tcp://{migration_host}",
             domain,
             migration_uri,
         ])

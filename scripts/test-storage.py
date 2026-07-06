@@ -36,11 +36,11 @@ def run_expect_failure(argv: list[str], expected: str | None = None) -> str:
 
 
 def virsh(*args: str) -> str:
-    return run(["virsh", *args])
+    return run(["virsh", "-c", "qemu:///system", *args])
 
 
 def virsh_expect_failure(expected: str | None, *args: str) -> str:
-    return run_expect_failure(["virsh", *args], expected)
+    return run_expect_failure(["virsh", "-c", "qemu:///system", *args], expected)
 
 
 def ensure_pool(name: str, xml: str) -> None:

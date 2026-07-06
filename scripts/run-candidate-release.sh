@@ -106,13 +106,9 @@ fi
 if [[ "$BUILD_SCOPE" == "provider" ]]; then
   ./scripts/release.py build-provider --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
   ./scripts/release.py collect --config "$CONFIG" --build-id "$BUILD_ID" --execute
-  if [[ "$LAB_ENABLED" == "true" ]]; then
-    ./scripts/release.py test-lab --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
-  else
-    ./scripts/release.py test-artifacts --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
-    ./scripts/release.py publish-staging --config "$CONFIG" --build-id "$BUILD_ID" --execute
-    ./scripts/release.py test-staging --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
-  fi
+  ./scripts/release.py test-artifacts --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
+  ./scripts/release.py publish-staging --config "$CONFIG" --build-id "$BUILD_ID" --execute
+  summary "Provider-only candidate tested on existing integration hosts; ephemeral lab requires full libvirt artifacts."
 elif [[ "$BUILD_UBUNTU" == "true" && "$BUILD_ALMA" == "true" ]]; then
   ./scripts/release.py build --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
   ./scripts/release.py collect --config "$CONFIG" --build-id "$BUILD_ID" --execute

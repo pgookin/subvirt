@@ -16,6 +16,8 @@ text = re.sub(r"^Version:\s*.*$", f"Version: {version}", text, flags=re.M)
 control.write_text(text, encoding="utf-8")
 PYCONTROL
 cp packaging/debian-provider/conffiles provider-build/deb/DEBIAN/conffiles
+install -m 0755 packaging/debian-provider/postinst provider-build/deb/DEBIAN/postinst
+install -m 0755 packaging/debian-provider/postrm provider-build/deb/DEBIAN/postrm
 install -m 0755 truenas_provider.py provider-build/deb/usr/libexec/truenas-libvirt/truenas_provider.py
 install -m 0755 truenas_provider_daemon.py provider-build/deb/usr/libexec/truenas-libvirt/truenas_provider_daemon.py
 install -m 0640 config.example.json provider-build/deb/etc/truenas-libvirt/config.json

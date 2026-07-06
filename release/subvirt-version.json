@@ -3,7 +3,7 @@
   "subvirt_version": "0.2.0",
   "provider": {
     "version": "0.2.0",
-    "release": 1
+    "release": 2
   },
   "ubuntu_24_04": {
     "libvirt": {

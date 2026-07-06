@@ -36,6 +36,7 @@ install -d -m 0755 %{buildroot}%{_tmpfilesdir}
 install -m 0644 %{_sourcedir}/truenas-libvirt-provider.conf %{buildroot}%{_tmpfilesdir}/truenas-libvirt-provider.conf
 
 %post
+%{_bindir}/systemd-tmpfiles --create %{_tmpfilesdir}/truenas-libvirt-provider.conf || :
 %systemd_post truenas-libvirt-provider.service
 
 %preun

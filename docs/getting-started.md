@@ -87,13 +87,17 @@ The current provider authenticates with `auth.login_ex` using `API_KEY_PLAIN`.
 
 The user must be able to:
 
-- list pools and datasets
-- create zvols under the managed dataset
-- create and update iSCSI objects when using iSCSI
-- create and update NVMe-oF objects when using NVMe-oF
+- read system information and list pools
+- query, create, update, and delete datasets and zvols under the managed dataset
+- query, create, clone, and delete snapshots used for Subvirt clone workflows
+- query, create, update, and delete iSCSI objects when using iSCSI
+- query, create, update, and delete NVMe-oF objects when using NVMe-oF
+- query, start, reload, and enable the TrueNAS iSCSI/NVMe-oF services
 
-For initial testing, a TrueNAS user with Sharing Admin access is the known-good
-starting point.
+For initial testing, use a dedicated TrueNAS account with Full Admin access or a
+custom role that exposes every method reported by `doctor`. A Sharing Admin role
+can create some storage objects, but it may not expose `pool.dataset.delete`,
+which means libvirt volume deletion will fail after creation succeeds.
 
 ## Configure the Provider
 
@@ -167,9 +171,12 @@ sudo /usr/libexec/truenas-libvirt/truenas_provider_daemon.py doctor --transport 
 sudo /usr/libexec/truenas-libvirt/truenas_provider_daemon.py doctor --transport nvmeof
 ```
 
-The command exits successfully only when required config, TrueNAS API, and host
-transport checks pass. Storage-port reachability is reported as a warning because
-TrueNAS services may start on demand when the first export is created.
+The command exits successfully only when required config, TrueNAS API, API
+permissions, and host transport checks pass. Storage-port reachability is
+reported as a warning because TrueNAS services may start on demand when the first
+export is created. If `truenas.permissions` fails, run `doctor --json`; the
+`permissions.missing` list names the TrueNAS API methods the configured account
+cannot use.
 
 ## Create a TrueNAS Storage Pool
 
@@ -331,6 +338,9 @@ Common problems:
 - `TrueNAS provider config file not found`: create
   `/etc/truenas-libvirt/config.json`.
 - `TrueNAS API key file not found`: create the configured `api_key_file`.
+- `truenas.permissions`: grant the configured TrueNAS user the missing API
+  methods shown by `doctor --json`, or use a dedicated Full Admin account for
+  initial testing.
 - `iSCSI transport requires iscsid.service`: enable and start `iscsid`.
 - `NVMe-oF transport requires the nvme-tcp kernel module`: run
   `modprobe nvme-tcp`.

@@ -24,7 +24,10 @@ The provider authenticates to the TrueNAS JSON-RPC WebSocket API with
 - TLS verification mode
 - storage target IP used for iSCSI and NVMe-oF exports
 
-Secrets are intentionally stored outside the repository.
+Secrets are intentionally stored outside the repository. The provider `doctor`
+command verifies that the configured API account exposes the TrueNAS methods
+Subvirt needs for the selected transport, including dataset delete permission for
+libvirt volume removal.
 
 ## Storage Model
 
@@ -84,4 +87,4 @@ Planned next areas:
 - fully automated ephemeral TrueNAS lab
 - automated migration gate
 - provider-level zvol snapshots
-- complete zvol deletion once the required TrueNAS API permissions are confirmed
+- richer provider-level zvol snapshot management

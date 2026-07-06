@@ -53,6 +53,57 @@ DEFAULT_CONFIG = "/etc/truenas-libvirt/config.json"
 DEFAULT_SOCKET = "/run/truenas-libvirt/provider.sock"
 DEFAULT_TIMEOUT = 30
 TRANSPORTS = ("iscsi", "nvmeof")
+BASE_TRUENAS_API_METHODS = (
+    "system.info",
+    "pool.query",
+    "pool.dataset.query",
+    "pool.dataset.create",
+    "pool.dataset.update",
+    "pool.dataset.delete",
+    "pool.snapshot.query",
+    "pool.snapshot.create",
+    "pool.snapshot.clone",
+    "pool.snapshot.delete",
+    "service.query",
+    "service.update",
+    "service.start",
+    "service.reload",
+)
+ISCSI_TRUENAS_API_METHODS = (
+    "iscsi.portal.query",
+    "iscsi.portal.create",
+    "iscsi.initiator.query",
+    "iscsi.initiator.create",
+    "iscsi.initiator.update",
+    "iscsi.target.query",
+    "iscsi.target.create",
+    "iscsi.target.update",
+    "iscsi.target.delete",
+    "iscsi.extent.query",
+    "iscsi.extent.create",
+    "iscsi.extent.delete",
+    "iscsi.targetextent.query",
+    "iscsi.targetextent.create",
+    "iscsi.targetextent.delete",
+)
+NVMEOF_TRUENAS_API_METHODS = (
+    "nvmet.host.query",
+    "nvmet.host.create",
+    "nvmet.host_subsys.query",
+    "nvmet.host_subsys.create",
+    "nvmet.host_subsys.delete",
+    "nvmet.namespace.query",
+    "nvmet.namespace.create",
+    "nvmet.namespace.delete",
+    "nvmet.port.query",
+    "nvmet.port.create",
+    "nvmet.port_subsys.query",
+    "nvmet.port_subsys.create",
+    "nvmet.port_subsys.delete",
+    "nvmet.subsys.query",
+    "nvmet.subsys.create",
+    "nvmet.subsys.delete",
+)
 
 
 class ProviderError(RuntimeError):
@@ -138,6 +189,15 @@ def doctor_check(
     if data:
         item["data"] = data
     return item
+
+
+def required_truenas_api_methods(transport: str) -> tuple[str, ...]:
+    methods = list(BASE_TRUENAS_API_METHODS)
+    if transport in ("all", "iscsi"):
+        methods.extend(ISCSI_TRUENAS_API_METHODS)
+    if transport in ("all", "nvmeof"):
+        methods.extend(NVMEOF_TRUENAS_API_METHODS)
+    return tuple(dict.fromkeys(methods))
 
 
 class TrueNASLibvirtProvider:
@@ -688,6 +748,27 @@ class TrueNASLibvirtProvider:
             message = str(exc)
         return [doctor_check("truenas.login", False, f"TrueNAS API login/query failed: {message}", {"error": message})], None
 
+    def _truenas_permission_diagnostics(self, transport: str) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+        try:
+            with self._client() as client:
+                login(client, self.config)
+                methods = client.call("core.get_methods", [])
+            if not isinstance(methods, dict):
+                return [doctor_check("truenas.permissions", False, "TrueNAS API method list returned an unexpected response")], None
+            required = required_truenas_api_methods(transport)
+            missing = [method for method in required if method not in methods]
+            ok = not missing
+            message = "TrueNAS API user exposes required Subvirt methods"
+            if missing:
+                message = "TrueNAS API user is missing methods required by Subvirt"
+            details = {"required": list(required), "missing": missing}
+            return [doctor_check("truenas.permissions", ok, message, details)], details
+        except (ConfigError, WebSocketError, OSError, ssl.SSLError) as exc:
+            message = str(exc)
+        except Exception as exc:
+            message = str(exc)
+        return [doctor_check("truenas.permissions", False, f"TrueNAS API permission check failed: {message}", {"error": message})], None
+
     def health_check(self, params: dict[str, Any]) -> dict[str, Any]:
         transport = str(params.get("transport", "all"))
         if transport not in (*TRANSPORTS, "all"):
@@ -700,12 +781,14 @@ class TrueNASLibvirtProvider:
         transport_checks, transports = self._transport_diagnostics(transport)
         network_checks, network = self._network_diagnostics(transport)
         truenas_checks, truenas = self._truenas_diagnostics()
+        permission_checks, permissions = self._truenas_permission_diagnostics(transport)
         checks.extend(config_checks)
         checks.extend(tool_checks)
         checks.extend(service_checks)
         checks.extend(transport_checks)
         checks.extend(network_checks)
         checks.extend(truenas_checks)
+        checks.extend(permission_checks)
         ok = all(bool(item["ok"]) for item in checks if item.get("required", True))
         return {
             "ok": ok,
@@ -717,6 +800,7 @@ class TrueNASLibvirtProvider:
             "transports": transports,
             "network": network,
             "truenas": truenas,
+            "permissions": permissions,
         }
 
 

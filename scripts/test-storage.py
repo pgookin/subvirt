@@ -86,6 +86,17 @@ def ensure_pool(name: str, xml: str) -> None:
     virsh("pool-refresh", name)
 
 
+def remote_ensure_pool(peer: str, name: str, xml: str) -> None:
+    pools = remote_virsh(peer, "pool-list", "--all")
+    if name not in pools:
+        remote_virsh(peer, "pool-define", xml)
+    try:
+        remote_virsh(peer, "pool-start", name)
+    except subprocess.CalledProcessError:
+        pass
+    remote_virsh(peer, "pool-refresh", name)
+
+
 UNIT_BYTES = {
     "B": 1,
     "KiB": 1024,
@@ -348,13 +359,14 @@ def migration_smoke(args: argparse.Namespace) -> None:
     machine = select_migration_machine(emulator, args.peer, args.migration_machine)
 
     create_volume(args.iscsi_pool, volume, args.migration_volume_size)
-    disk_path = volume_path(args.iscsi_pool, volume)
-    run(["qemu-img", "convert", "-O", "raw", str(image), disk_path])
-    virsh("pool-refresh", args.iscsi_pool)
-    remote_virsh(args.peer, "pool-refresh", args.iscsi_pool)
-
-    peer_alias = emulator if ensure_peer_emulator(args.peer, emulator) else None
+    peer_alias = None
     try:
+        disk_path = volume_path(args.iscsi_pool, volume)
+        run(["qemu-img", "convert", "-O", "raw", str(image), disk_path])
+        virsh("pool-refresh", args.iscsi_pool)
+        remote_ensure_pool(args.peer, args.iscsi_pool, args.iscsi_pool_xml)
+
+        peer_alias = emulator if ensure_peer_emulator(args.peer, emulator) else None
         define_domain(domain, disk_path, emulator, machine)
         virsh("start", domain)
         wait_for_domain_state(domain, "running")

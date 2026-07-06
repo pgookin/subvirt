@@ -90,14 +90,12 @@ def remote_ensure_pool(peer: str, name: str, xml: str) -> None:
     pools = remote_virsh(peer, "pool-list", "--all")
     if name not in pools:
         remote_virsh(peer, "pool-define", xml)
-    started = False
-    try:
-        remote_virsh(peer, "pool-start", name)
-        started = True
-    except subprocess.CalledProcessError:
-        pass
-    if not started:
-        remote_virsh(peer, "pool-refresh", name)
+    else:
+        try:
+            remote_virsh(peer, "pool-destroy", name)
+        except subprocess.CalledProcessError:
+            pass
+    remote_virsh(peer, "pool-start", name)
 
 
 UNIT_BYTES = {
@@ -367,6 +365,10 @@ def cleanup_migration(domain: str, peer: str, pool: str, volume: str, peer_emula
         except subprocess.CalledProcessError:
             pass
         virsh("undefine", domain)
+    try:
+        remote_virsh(peer, "pool-destroy", pool)
+    except subprocess.CalledProcessError:
+        pass
     virsh("pool-refresh", pool)
     if volume in virsh("vol-list", pool):
         virsh("vol-delete", "--pool", pool, volume)

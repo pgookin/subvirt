@@ -538,7 +538,7 @@ def wait_for_linux_vms(lab: Lab, distros: Iterable[str]) -> None:
         ssh(f"root@{host}", "cloud-init status --wait || true", lab)
 
 
-def configure_linux_repos(lab: Lab, distros: Iterable[str] | None = None) -> None:
+def configure_linux_repos(lab: Lab, distros: Iterable[str] | None = None, mode: str = "full") -> None:
     distros = list(distros or published_distros(lab))
     ubuntu = lab.config["vms"]["ubuntu"]["management_ip"]
     alma = lab.config["vms"]["alma"]["management_ip"]
@@ -546,7 +546,71 @@ def configure_linux_repos(lab: Lab, distros: Iterable[str] | None = None) -> Non
     suite = lab.config["repo"].get("apt_suite", "noble")
     component = lab.config["repo"].get("component", "staging")
     yum_path = lab.config["repo"].get("yum_distro_path", "almalinux/10")
-    ubuntu_cmd = f"""
+    stable_base_url = lab.config["repo"].get("stable_base_url", "https://repo.subvirt.net")
+    if mode == "provider":
+        ubuntu_cmd = f"""
+set -euo pipefail
+install -d -m 0755 /usr/share/keyrings /etc/apt/sources.list.d /etc/apt/preferences.d
+curl -fsSL {q(stable_base_url + '/keys/subvirt.gpg')} -o /usr/share/keyrings/subvirt-stable.gpg
+curl -fsSL {q(url + '/keys/subvirt.gpg')} -o /usr/share/keyrings/subvirt-staging.gpg
+cat >/etc/apt/sources.list.d/subvirt-stable.sources <<'EOF'
+Types: deb
+URIs: {stable_base_url}/apt/ubuntu
+Suites: {suite}
+Components: stable
+Architectures: amd64
+Signed-By: /usr/share/keyrings/subvirt-stable.gpg
+EOF
+cat >/etc/apt/sources.list.d/subvirt-staging.sources <<'EOF'
+Types: deb
+URIs: {url}/apt/ubuntu
+Suites: {suite}
+Components: {component}
+Architectures: amd64
+Signed-By: /usr/share/keyrings/subvirt-staging.gpg
+EOF
+cat >/etc/apt/preferences.d/subvirt-provider-staging <<'EOF'
+Package: truenas-libvirt-provider
+Pin: release c=staging
+Pin-Priority: 1001
+EOF
+apt-get clean
+apt-get update
+DEBIAN_FRONTEND=noninteractive apt-get --fix-broken install -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold
+DEBIAN_FRONTEND=noninteractive apt-get full-upgrade -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold
+DEBIAN_FRONTEND=noninteractive apt-get install -y truenas-libvirt-provider libvirt-daemon-system libvirt-daemon-driver-qemu libvirt-daemon-driver-storage-truenas virt-manager virtinst open-iscsi nvme-cli
+if ! modprobe nvme-tcp 2>/dev/null; then
+  DEBIAN_FRONTEND=noninteractive apt-get install -y "linux-modules-extra-$(uname -r)"
+  modprobe nvme-tcp
+fi
+"""
+        alma_cmd = f"""
+set -euo pipefail
+curl -fsSL {q(stable_base_url + '/keys/subvirt.asc')} -o /etc/pki/rpm-gpg/RPM-GPG-KEY-subvirt-stable
+curl -fsSL {q(url + '/keys/subvirt.asc')} -o /etc/pki/rpm-gpg/RPM-GPG-KEY-subvirt-staging
+cat >/etc/yum.repos.d/subvirt-stable.repo <<'EOF'
+[subvirt-stable]
+name=Subvirt stable packages
+baseurl={stable_base_url}/yum/{yum_path}/stable
+enabled=1
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-subvirt-stable
+EOF
+cat >/etc/yum.repos.d/subvirt-lab.repo <<'EOF'
+[subvirt-lab]
+name=Subvirt Lab
+baseurl={url}/yum/{yum_path}/{component}
+enabled=1
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-subvirt-staging
+EOF
+dnf upgrade -y
+dnf install -y --disablerepo=subvirt-lab libvirt-daemon-kvm libvirt-daemon-driver-storage-truenas virt-manager virt-manager-common virt-install iscsi-initiator-utils nvme-cli kmod
+dnf install -y --disablerepo=subvirt-stable truenas-libvirt-provider
+modprobe nvme-tcp
+"""
+    else:
+        ubuntu_cmd = f"""
 set -euo pipefail
 install -d -m 0755 /usr/share/keyrings /etc/apt/sources.list.d
 curl -fsSL {q(url + '/keys/subvirt.gpg')} -o /usr/share/keyrings/subvirt.gpg
@@ -568,7 +632,7 @@ if ! modprobe nvme-tcp 2>/dev/null; then
   modprobe nvme-tcp
 fi
 """
-    alma_cmd = f"""
+        alma_cmd = f"""
 set -euo pipefail
 curl -fsSL {q(url + '/keys/subvirt.asc')} -o /etc/pki/rpm-gpg/RPM-GPG-KEY-subvirt
 cat >/etc/yum.repos.d/subvirt-lab.repo <<'EOF'
@@ -626,19 +690,18 @@ systemctl restart truenas-libvirt-provider.service
         ssh(f"root@{host}", command, lab)
 
 
-def test_repo(lab: Lab) -> None:
+def test_repo(lab: Lab, mode: str) -> None:
     distros = published_distros(lab)
     wait_for_linux_vms(lab, distros)
-    configure_linux_repos(lab, distros)
+    configure_linux_repos(lab, distros, mode)
     api_key = lab.config.get("truenas", {}).get("api_key")
-    if api_key:
-        configure_provider_configs(lab, distros)
-    else:
-        print("truenas.api_key is not set; package-manager install test completed without provider/storage checks")
-    if api_key and {"ubuntu", "alma"}.issubset(set(distros)):
+    if not api_key:
+        raise SystemExit("truenas.api_key is required for lab candidate validation; set it in the local lab config")
+    configure_provider_configs(lab, distros)
+    if {"ubuntu", "alma"}.issubset(set(distros)):
         run([str(ROOT / "scripts" / "release.py"), "test-staging", "--config", str(lab.run_dir / "release.json"), "--build-id", lab.build_id, "--execute"], lab.execute)
     else:
-        print(f"partial lab repo test completed for distros={distros}; storage gate requires ubuntu and alma artifacts plus truenas.api_key")
+        print(f"partial lab repo test completed for distros={distros}; storage gate requires ubuntu and alma artifacts")
 
 
 def configure_truenas(lab: Lab) -> None:
@@ -724,6 +787,7 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
     parser.add_argument("--config", default="release/lab.example.json", type=Path)
     parser.add_argument("--build-id", default="manual")
     parser.add_argument("--artifacts", type=Path, help="artifact directory containing ubuntu/ and alma/ subdirectories")
+    parser.add_argument("--mode", choices=["full", "provider"], default="full", help="lab repo test mode")
     parser.add_argument("--execute", action="store_true")
     return parser.parse_args(list(argv))
 
@@ -743,7 +807,7 @@ def main(argv: Iterable[str] = sys.argv[1:]) -> int:
         artifacts = args.artifacts or Path(lab.config["lab"].get("artifact_root", "/srv/subvirt/artifacts")) / args.build_id
         publish_repo(lab, artifacts)
     elif args.command == "test-repo":
-        test_repo(lab)
+        test_repo(lab, args.mode)
     elif args.command == "configure-truenas":
         configure_truenas(lab)
     elif args.command == "destroy":

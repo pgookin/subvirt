@@ -27,6 +27,7 @@ class Context:
     ref: str
     build_id: str
     test_id_override: str | None = None
+    lab_mode: str = "full"
 
 
 def q(value: str) -> str:
@@ -461,7 +462,7 @@ def test_ephemeral_lab(ctx: Context) -> None:
         "set +e",
         f"./scripts/lab.py {create_command} --config {q(config_path)} --build-id {q(ctx.build_id)} --execute && "
         f"./scripts/lab.py publish-repo --config {q(config_path)} --build-id {q(ctx.build_id)} --artifacts {q(artifacts)} --execute && "
-        f"./scripts/lab.py test-repo --config {q(config_path)} --build-id {q(ctx.build_id)} --execute",
+        f"./scripts/lab.py test-repo --config {q(config_path)} --build-id {q(ctx.build_id)} --mode {q(ctx.lab_mode)} --execute",
         "rc=$?",
         f"if test $rc -eq 0; then ./scripts/lab.py destroy --config {q(config_path)} --build-id {q(ctx.build_id)} --execute; "
         f"else echo 'Ephemeral lab preserved for failed build {ctx.build_id}. Cleanup with: ./scripts/lab.py destroy --config {q(config_path)} --build-id {q(ctx.build_id)} --execute' >&2; fi",
@@ -635,13 +636,14 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
     parser.add_argument("--ref", default="HEAD")
     parser.add_argument("--build-id", required=True)
     parser.add_argument("--test-id", help="override the storage test ID while using artifacts from --build-id")
+    parser.add_argument("--lab-mode", choices=["full", "provider"], default="full", help="ephemeral lab package installation mode")
     parser.add_argument("--execute", action="store_true", help="actually run commands; default is dry-run")
     return parser.parse_args(list(argv))
 
 
 def main(argv: Iterable[str] = sys.argv[1:]) -> int:
     args = parse_args(argv)
-    ctx = Context(load_config(Path(args.config)), args.execute, args.ref, args.build_id, args.test_id)
+    ctx = Context(load_config(Path(args.config)), args.execute, args.ref, args.build_id, args.test_id, args.lab_mode)
     actions = {
         "checkout-build": lambda: checkout_build(ctx),
         "build": lambda: (build_ubuntu(ctx), build_alma(ctx)),

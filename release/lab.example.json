@@ -36,6 +36,7 @@
     "apt_suite": "noble",
     "component": "staging",
     "yum_distro_path": "almalinux/10",
+    "stable_base_url": "https://repo.subvirt.net",
     "gpg_name": "Subvirt Lab Repository <lab@subvirt.local>"
   },
   "vms": {

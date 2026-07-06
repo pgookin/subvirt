@@ -93,7 +93,7 @@ Run a provider-only release candidate when only `truenas-libvirt-provider` chang
 BUILD_ID=0.2.1-provider-1 BUILD_SCOPE=provider PROMOTE_STABLE=false ./scripts/run-candidate-release.sh
 ```
 
-Provider-only candidates build the Ubuntu and Alma provider packages, install them on the existing test hosts, publish to the private staging repo, and run the same storage gate. Set `PROMOTE_STABLE=true` only when that provider build should be published to the public stable repository.
+Provider-only candidates build the Ubuntu and Alma provider packages, create fresh ephemeral lab VMs, install patched libvirt and virt-manager from the current stable repo, install the staged provider package from the per-run lab repo, and run the same TrueNAS storage gate. Provider-only candidates require `lab.enabled=true` and `truenas.api_key` in the local lab config. Set `PROMOTE_STABLE=true` only when that provider build should be published to the public stable repository.
 
 ## Build Helpers
 

@@ -106,9 +106,12 @@ fi
 if [[ "$BUILD_SCOPE" == "provider" ]]; then
   ./scripts/release.py build-provider --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
   ./scripts/release.py collect --config "$CONFIG" --build-id "$BUILD_ID" --execute
-  ./scripts/release.py test-artifacts --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
-  ./scripts/release.py publish-staging --config "$CONFIG" --build-id "$BUILD_ID" --execute
-  summary "Provider-only candidate tested on existing integration hosts; ephemeral lab requires full libvirt artifacts."
+  if [[ "$LAB_ENABLED" != "true" ]]; then
+    echo "Provider-only candidates require lab.enabled=true so fresh VMs can test the staged provider against stable libvirt packages" >&2
+    exit 1
+  fi
+  ./scripts/release.py test-lab --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --lab-mode provider --execute
+  summary "Provider-only candidate tested in ephemeral lab with stable libvirt packages and staged provider packages."
 elif [[ "$BUILD_UBUNTU" == "true" && "$BUILD_ALMA" == "true" ]]; then
   ./scripts/release.py build --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
   ./scripts/release.py collect --config "$CONFIG" --build-id "$BUILD_ID" --execute

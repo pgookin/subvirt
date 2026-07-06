@@ -947,7 +947,6 @@ class TrueNASLibvirtProvider:
         # A deleted/recreated TrueNAS extent can keep the same target IQN while
         # exposing a new LUN identity.  Clear both live sessions and node records
         # so the next pool refresh performs a fresh login and device discovery.
-        run_command(["iscsiadm", "-m", "session", "-T", target_iqn, "--logout"], check=False)
         run_command(["iscsiadm", "-m", "node", "-T", target_iqn, "--logout"], check=False)
         run_command(["iscsiadm", "-m", "node", "-T", target_iqn, "--op", "delete"], check=False)
         if tool_exists("udevadm"):

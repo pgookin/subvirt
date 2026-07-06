@@ -437,7 +437,13 @@ def run_storage_gate(ctx: Context) -> None:
     p = project(ctx)
     ubuntu = hosts(ctx)["ubuntu_test"]
     alma = hosts(ctx)["alma_test"]
-    for host in (ubuntu, alma):
+    migration_source = hosts(ctx).get("migration_source", ubuntu)
+    migration_target = hosts(ctx).get("migration_target", alma)
+    run_migration = tests(ctx).get("run_migration", bool(tests(ctx).get("migration_domain")))
+    setup_hosts = [ubuntu, alma]
+    if run_migration:
+        setup_hosts.extend([migration_source, migration_target])
+    for host in dict.fromkeys(setup_hosts):
         remote_checkout(ctx, host)
         sync_storage_pool_xml(ctx, host)
         sync_migration_ssh_material(ctx, host)
@@ -468,7 +474,7 @@ def run_storage_gate(ctx: Context) -> None:
     ])
     migration = " && ".join([
         f"cd {q(p['workdir'])}",
-        f"./scripts/test-storage.py --action migrate --role ubuntu --peer {q(alma)} {base}",
+        f"./scripts/test-storage.py --action migrate --role ubuntu --peer {q(migration_target)} {base}",
     ])
     remote(ubuntu, ubuntu_create, ctx)
     remote(alma, alma_create, ctx)
@@ -476,8 +482,8 @@ def run_storage_gate(ctx: Context) -> None:
     remote(alma, alma_check, ctx)
     remote(ubuntu, ubuntu_delete_check, ctx)
     remote(alma, alma_delete_check, ctx)
-    if tests(ctx).get("run_migration", bool(tests(ctx).get("migration_domain"))):
-        remote(ubuntu, migration, ctx)
+    if run_migration:
+        remote(migration_source, migration, ctx)
 
 
 

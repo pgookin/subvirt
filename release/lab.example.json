@@ -51,6 +51,18 @@
       "memory_mib": 4096,
       "vcpus": 4
     },
+    "ubuntu_migration_peer": {
+      "name": "u24-migration-peer",
+      "image_url": "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img",
+      "image_sha256": "",
+      "os_variant": "ubuntu24.04",
+      "management_ip": "192.168.150.13",
+      "storage_ip": "192.168.151.13",
+      "disk_size": "40G",
+      "memory_mib": 4096,
+      "vcpus": 4,
+      "distro": "ubuntu"
+    },
     "alma": {
       "name": "al10",
       "image_url": "https://repo.almalinux.org/almalinux/10/cloud/x86_64/images/AlmaLinux-10-GenericCloud-latest.x86_64.qcow2",

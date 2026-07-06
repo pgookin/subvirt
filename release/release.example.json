@@ -11,6 +11,8 @@
     "build": "build-host",
     "ubuntu_test": "ubuntu-test-host",
     "alma_test": "alma-test-host",
+    "migration_source": "ubuntu-test-host",
+    "migration_target": "ubuntu-migration-peer-host",
     "repo": "internal-repo-host",
     "public_repo": "subvirt-publish@repo.subvirt.net"
   },

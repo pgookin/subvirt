@@ -341,7 +341,7 @@ def create_cloud_vm(lab: Lab, vm_key: str, offset: int) -> None:
         run(["qemu-img", "create", "-f", "qcow2", "-F", "qcow2", "-b", str(base), str(disk), vm["disk_size"]], lab.execute)
     mgmt_mac = mac_for(lab.build_id, offset)
     storage_mac = mac_for(lab.build_id, offset + 100)
-    seed = write_cloud_init(lab, name, vm_key, mgmt_mac, storage_mac, vm["management_ip"], vm["storage_ip"])
+    seed = write_cloud_init(lab, name, vm_distro(lab, vm_key), mgmt_mac, storage_mac, vm["management_ip"], vm["storage_ip"])
     run([
         "virt-install", "--connect", "qemu:///system", "--name", name,
         "--memory", str(vm["memory_mib"]), "--vcpus", str(vm["vcpus"]),
@@ -567,6 +567,8 @@ def create_linux_lab(lab: Lab) -> None:
     ensure_networks(lab)
     create_cloud_vm(lab, "ubuntu", 10)
     create_cloud_vm(lab, "alma", 20)
+    if lab.config["tests"].get("run_migration", False) and "ubuntu_migration_peer" in lab.config["vms"]:
+        create_cloud_vm(lab, "ubuntu_migration_peer", 40)
     write_run_release_config(lab)
 
 
@@ -621,6 +623,18 @@ def published_distros(lab: Lab) -> list[str]:
     if marker.exists():
         return json.loads(marker.read_text(encoding="utf-8"))["distros"]
     return ["ubuntu", "alma"]
+
+
+def vm_distro(lab: Lab, key: str) -> str:
+    return str(lab.config["vms"][key].get("distro", key))
+
+
+def linux_vm_keys(lab: Lab, package_distros: Iterable[str]) -> list[str]:
+    available = set(package_distros)
+    keys = [key for key in ("ubuntu", "alma") if key in lab.config["vms"] and vm_distro(lab, key) in available]
+    if lab.config["tests"].get("run_migration", False) and "ubuntu_migration_peer" in lab.config["vms"] and "ubuntu" in available:
+        keys.append("ubuntu_migration_peer")
+    return keys
 
 
 def publish_repo(lab: Lab, artifacts: Path) -> None:
@@ -680,17 +694,15 @@ def wait_for_ssh(lab: Lab, host: str, label: str, attempts: int = 60) -> None:
             time.sleep(5)
 
 
-def wait_for_linux_vms(lab: Lab, distros: Iterable[str]) -> None:
-    for distro in distros:
-        host = lab.config["vms"][distro]["management_ip"]
-        wait_for_ssh(lab, host, distro)
+def wait_for_linux_vms(lab: Lab, vm_keys: Iterable[str]) -> None:
+    for key in vm_keys:
+        host = lab.config["vms"][key]["management_ip"]
+        wait_for_ssh(lab, host, key)
         ssh(f"root@{host}", "cloud-init status --wait || true", lab)
 
 
-def configure_linux_repos(lab: Lab, distros: Iterable[str] | None = None, mode: str = "full") -> None:
-    distros = list(distros or published_distros(lab))
-    ubuntu = lab.config["vms"]["ubuntu"]["management_ip"]
-    alma = lab.config["vms"]["alma"]["management_ip"]
+def configure_linux_repos(lab: Lab, vm_keys: Iterable[str] | None = None, mode: str = "full") -> None:
+    vm_keys = list(vm_keys or linux_vm_keys(lab, published_distros(lab)))
     url = repo_url(lab)
     suite = lab.config["repo"].get("apt_suite", "noble")
     component = lab.config["repo"].get("component", "staging")
@@ -832,17 +844,22 @@ for unit in virtstoraged.service libvirtd.service; do
 done
 systemctl list-unit-files virtqemud.service --no-legend | grep -q . && systemctl restart virtqemud.service || true
 """
-    if "ubuntu" in distros:
-        ssh(f"root@{ubuntu}", ubuntu_cmd, lab)
-    if "alma" in distros:
-        ssh(f"root@{alma}", alma_cmd, lab)
+    for key in vm_keys:
+        host = lab.config["vms"][key]["management_ip"]
+        distro = vm_distro(lab, key)
+        if distro == "ubuntu":
+            ssh(f"root@{host}", ubuntu_cmd, lab)
+        elif distro == "alma":
+            ssh(f"root@{host}", alma_cmd, lab)
+        else:
+            raise SystemExit(f"unsupported Linux VM distro {distro!r} for {key}")
 
 
-def configure_provider_configs(lab: Lab, distros: Iterable[str] | None = None) -> None:
+def configure_provider_configs(lab: Lab, vm_keys: Iterable[str] | None = None) -> None:
     api_key = lab.config.get("truenas", {}).get("api_key")
     if not api_key:
         raise SystemExit("truenas.api_key is required after TrueNAS install/configuration; run configure-truenas or set it in local lab config")
-    distros = list(distros or published_distros(lab))
+    vm_keys = list(vm_keys or linux_vm_keys(lab, published_distros(lab)))
     t = lab.config["truenas"]
     config = {
         "truenas": {
@@ -855,7 +872,7 @@ def configure_provider_configs(lab: Lab, distros: Iterable[str] | None = None) -
         "namespace": {"dataset": t.get("dataset", "libvirt")},
     }
     payload = json.dumps(config, indent=2)
-    for key in distros:
+    for key in vm_keys:
         host = lab.config["vms"][key]["management_ip"]
         command = f"""
 set -euo pipefail
@@ -877,13 +894,14 @@ systemctl restart truenas-libvirt-provider.service
 
 def test_repo(lab: Lab, mode: str) -> None:
     distros = published_distros(lab)
-    wait_for_linux_vms(lab, distros)
-    configure_linux_repos(lab, distros, mode)
+    vm_keys = linux_vm_keys(lab, distros)
+    wait_for_linux_vms(lab, vm_keys)
+    configure_linux_repos(lab, vm_keys, mode)
     api_key = lab.config.get("truenas", {}).get("api_key")
     if not api_key:
         raise SystemExit("truenas.api_key is required for lab candidate validation; set it in the local lab config")
     doctor_truenas(lab)
-    configure_provider_configs(lab, distros)
+    configure_provider_configs(lab, vm_keys)
     if {"ubuntu", "alma"}.issubset(set(distros)):
         run([str(ROOT / "scripts" / "release.py"), "test-staging", "--config", str(lab.run_dir / "release.json"), "--build-id", lab.build_id, "--execute"], lab.execute)
     else:
@@ -908,6 +926,9 @@ def write_run_release_config(lab: Lab) -> None:
     release["project"].setdefault("rsync_excludes", [".git", "build", "dist", "provider-build", ".venv-vnc"])
     release["hosts"]["ubuntu_test"] = f"root@{lab.config['vms']['ubuntu']['management_ip']}"
     release["hosts"]["alma_test"] = f"root@{lab.config['vms']['alma']['management_ip']}"
+    release["hosts"]["migration_source"] = release["hosts"]["ubuntu_test"]
+    if "ubuntu_migration_peer" in lab.config["vms"]:
+        release["hosts"]["migration_target"] = f"root@{lab.config['vms']['ubuntu_migration_peer']['management_ip']}"
     release["tests"]["iscsi_pool"] = tests["iscsi_pool_name"]
     release["tests"]["nvmeof_pool"] = tests["nvmeof_pool_name"]
     release["tests"]["iscsi_pool_xml"] = str(lab.run_dir / "iscsi-pool.xml")
@@ -950,7 +971,9 @@ def write_run_release_config(lab: Lab) -> None:
 
 def destroy_lab(lab: Lab) -> None:
     prefix = f"{lab.config['lab']['name_prefix']}-{lab.build_id}-"
-    for key in ("ubuntu", "alma", "truenas"):
+    for key in ("ubuntu", "alma", "ubuntu_migration_peer", "truenas"):
+        if key not in lab.config["vms"]:
+            continue
         name = prefix + lab.config["vms"][key]["name"]
         existing = virsh("list", "--all", lab=lab)
         if name in existing:
@@ -998,7 +1021,7 @@ def main(argv: Iterable[str] = sys.argv[1:]) -> int:
     elif args.command == "ensure-truenas":
         ensure_persistent_truenas(lab)
     elif args.command == "wait-linux":
-        wait_for_linux_vms(lab, ("ubuntu", "alma"))
+        wait_for_linux_vms(lab, linux_vm_keys(lab, ["ubuntu", "alma"]))
     elif args.command == "wait-truenas":
         wait_truenas(lab)
     elif args.command == "doctor-truenas":

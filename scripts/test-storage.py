@@ -90,11 +90,14 @@ def remote_ensure_pool(peer: str, name: str, xml: str) -> None:
     pools = remote_virsh(peer, "pool-list", "--all")
     if name not in pools:
         remote_virsh(peer, "pool-define", xml)
+    started = False
     try:
         remote_virsh(peer, "pool-start", name)
+        started = True
     except subprocess.CalledProcessError:
         pass
-    remote_virsh(peer, "pool-refresh", name)
+    if not started:
+        remote_virsh(peer, "pool-refresh", name)
 
 
 UNIT_BYTES = {
@@ -315,7 +318,8 @@ def domain_xml(domain: str, disk_path: str, emulator: str, machine: str) -> str:
   <on_crash>destroy</on_crash>
   <devices>
     <emulator>{emulator}</emulator>
-{pci_controllers}    <disk type='block' device='disk'>
+{pci_controllers}    <controller type='usb' model='none'/>
+    <disk type='block' device='disk'>
       <driver name='qemu' type='raw' cache='none' io='native'/>
       <source dev='{disk_path}'/>
       <target dev='vda' bus='virtio'/>
@@ -349,10 +353,16 @@ def remote_domain_exists(peer: str, domain: str) -> bool:
 
 def cleanup_migration(domain: str, peer: str, pool: str, volume: str, peer_emulator_alias: str | None = None) -> None:
     if remote_domain_exists(peer, domain):
-        remote_virsh(peer, "destroy", domain)
+        try:
+            remote_virsh(peer, "destroy", domain)
+        except subprocess.CalledProcessError:
+            pass
         remote_virsh(peer, "undefine", domain)
     if local_domain_exists(domain):
-        virsh("destroy", domain)
+        try:
+            virsh("destroy", domain)
+        except subprocess.CalledProcessError:
+            pass
         virsh("undefine", domain)
     virsh("pool-refresh", pool)
     if volume in virsh("vol-list", pool):

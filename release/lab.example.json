@@ -105,6 +105,7 @@
     "iscsi_pool_name": "truenas-iscsi",
     "nvmeof_pool_name": "truenas-nvmeof",
     "target_path": "/dev/disk/by-id",
-    "run_migration": false
+    "run_migration": false,
+    "min_pool_capacity_gib": 50
   }
 }

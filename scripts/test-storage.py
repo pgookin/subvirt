@@ -62,8 +62,12 @@ def ssh_args(peer: str) -> list[str]:
     return argv
 
 
+def remote(peer: str, *args: str) -> str:
+    return run([*ssh_args(peer), *args])
+
+
 def remote_virsh(peer: str, *args: str) -> str:
-    return run([*ssh_args(peer), "virsh", "-c", "qemu:///system", *args])
+    return remote(peer, "virsh", "-c", "qemu:///system", *args)
 
 
 def ensure_pool(name: str, xml: str) -> None:
@@ -195,7 +199,40 @@ def download_migration_image(url: str, sha256: str) -> Path:
     return path
 
 
-def domain_xml(domain: str, disk_path: str) -> str:
+QEMU_EMULATOR_CANDIDATES = [
+    "/usr/bin/qemu-system-x86_64",
+    "/usr/libexec/qemu-kvm",
+]
+
+
+def executable_exists(path: str, peer: str | None = None) -> bool:
+    try:
+        if peer:
+            remote(peer, "test", "-x", path)
+        else:
+            run(["test", "-x", path])
+        return True
+    except subprocess.CalledProcessError:
+        return False
+
+
+def first_existing_emulator(peer: str | None = None) -> str:
+    for candidate in QEMU_EMULATOR_CANDIDATES:
+        if executable_exists(candidate, peer=peer):
+            return candidate
+    location = peer or "local"
+    raise RuntimeError(f"no known QEMU emulator path found on {location}")
+
+
+def ensure_peer_emulator(peer: str, emulator: str) -> bool:
+    if executable_exists(emulator, peer=peer):
+        return False
+    peer_emulator = first_existing_emulator(peer=peer)
+    remote(peer, "ln", "-s", peer_emulator, emulator)
+    return True
+
+
+def domain_xml(domain: str, disk_path: str, emulator: str) -> str:
     return f"""<domain type='kvm'>
   <name>{domain}</name>
   <memory unit='MiB'>256</memory>
@@ -214,7 +251,7 @@ def domain_xml(domain: str, disk_path: str) -> str:
   <on_reboot>restart</on_reboot>
   <on_crash>destroy</on_crash>
   <devices>
-    <emulator>/usr/bin/qemu-system-x86_64</emulator>
+    <emulator>{emulator}</emulator>
     <disk type='block' device='disk'>
       <driver name='qemu' type='raw' cache='none' io='native'/>
       <source dev='{disk_path}'/>
@@ -232,9 +269,9 @@ def domain_xml(domain: str, disk_path: str) -> str:
 """
 
 
-def define_domain(domain: str, disk_path: str) -> Path:
+def define_domain(domain: str, disk_path: str, emulator: str) -> Path:
     xml_path = Path(f"/tmp/{domain}.xml")
-    xml_path.write_text(domain_xml(domain, disk_path), encoding="utf-8")
+    xml_path.write_text(domain_xml(domain, disk_path, emulator), encoding="utf-8")
     virsh("define", str(xml_path))
     return xml_path
 
@@ -247,7 +284,7 @@ def remote_domain_exists(peer: str, domain: str) -> bool:
     return domain in remote_virsh(peer, "list", "--all")
 
 
-def cleanup_migration(domain: str, peer: str, pool: str, volume: str) -> None:
+def cleanup_migration(domain: str, peer: str, pool: str, volume: str, peer_emulator_alias: str | None = None) -> None:
     if remote_domain_exists(peer, domain):
         remote_virsh(peer, "destroy", domain)
         remote_virsh(peer, "undefine", domain)
@@ -258,6 +295,8 @@ def cleanup_migration(domain: str, peer: str, pool: str, volume: str) -> None:
     if volume in virsh("vol-list", pool):
         virsh("vol-delete", "--pool", pool, volume)
         virsh("pool-refresh", pool)
+    if peer_emulator_alias:
+        remote(peer, "rm", "-f", peer_emulator_alias)
 
 
 def migration_smoke(args: argparse.Namespace) -> None:
@@ -271,32 +310,36 @@ def migration_smoke(args: argparse.Namespace) -> None:
     virsh("pool-refresh", args.iscsi_pool)
     remote_virsh(args.peer, "pool-refresh", args.iscsi_pool)
 
-    define_domain(domain, disk_path)
-    virsh("start", domain)
-    wait_for_domain_state(domain, "running")
-    migration_uri = f"qemu+ssh://{args.peer}/system"
-    identity = os.environ.get("SUBVIRT_TEST_SSH_IDENTITY_FILE", "")
-    if identity:
-        migration_uri += f"?keyfile={identity}&no_verify=1"
-    run([
-        "timeout",
-        "180",
-        "virsh",
-        "-c",
-        "qemu:///system",
-        "migrate",
-        "--live",
-        "--persistent",
-        "--undefinesource",
-        domain,
-        migration_uri,
-    ])
-    wait_for_domain_absent(domain)
-    wait_for_domain_state(domain, "running", peer=args.peer)
-    remote_xml = remote_virsh(args.peer, "dumpxml", domain)
-    if disk_path not in remote_xml:
-        raise RuntimeError(f"migrated domain XML does not reference expected shared disk path {disk_path}")
-    cleanup_migration(domain, args.peer, args.iscsi_pool, volume)
+    emulator = first_existing_emulator()
+    peer_alias = emulator if ensure_peer_emulator(args.peer, emulator) else None
+    try:
+        define_domain(domain, disk_path, emulator)
+        virsh("start", domain)
+        wait_for_domain_state(domain, "running")
+        migration_uri = f"qemu+ssh://{args.peer}/system"
+        identity = os.environ.get("SUBVIRT_TEST_SSH_IDENTITY_FILE", "")
+        if identity:
+            migration_uri += f"?keyfile={identity}&no_verify=1"
+        run([
+            "timeout",
+            "180",
+            "virsh",
+            "-c",
+            "qemu:///system",
+            "migrate",
+            "--live",
+            "--persistent",
+            "--undefinesource",
+            domain,
+            migration_uri,
+        ])
+        wait_for_domain_absent(domain)
+        wait_for_domain_state(domain, "running", peer=args.peer)
+        remote_xml = remote_virsh(args.peer, "dumpxml", domain)
+        if disk_path not in remote_xml:
+            raise RuntimeError(f"migrated domain XML does not reference expected shared disk path {disk_path}")
+    finally:
+        cleanup_migration(domain, args.peer, args.iscsi_pool, volume, peer_alias)
 
 
 def parse_args(argv: Iterable[str]) -> argparse.Namespace:

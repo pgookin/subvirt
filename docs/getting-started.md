@@ -293,8 +293,10 @@ Configure every hypervisor with the same TrueNAS provider config, repo packages,
 and pool XML. Each host must have its own local iSCSI IQN and NVMe host NQN.
 
 For migration, define the same Subvirt pool name on each host. The same volume
-name should resolve to the same TrueNAS zvol and stable `/dev/disk/by-id` path on
-every host.
+name must resolve to the same TrueNAS zvol, and the disk source path used by the
+guest must exist on both the source and destination hypervisor. Device discovery
+names can differ between initiators, so production clusters should standardize
+shared storage paths before relying on live migration.
 
 ## Troubleshooting
 

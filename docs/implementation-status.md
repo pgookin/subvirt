@@ -26,18 +26,20 @@ The current package path has validated these workflows in lab environments:
 - reporting managed dataset capacity instead of summing zvol sizes
 - package-manager installation from apt and yum repositories
 - patched virt-manager detecting `truenas` pools as volume-creation capable
+- same-distro Ubuntu-to-Ubuntu live migration of an iSCSI-backed disposable
+  guest in the lab storage gate
 
 ## Known Limitations
 
 - Full ephemeral CI can create fresh Linux test VMs, but fully unattended TrueNAS VM setup is still pending.
-- Automated live-migration validation exists as an opt-in iSCSI-backed smoke gate, checks QEMU machine-type compatibility, and the ephemeral lab routes it through an Ubuntu-to-Ubuntu migration peer.
+- Automated live-migration validation checks QEMU machine-type compatibility and
+  the ephemeral lab routes it through an Ubuntu-to-Ubuntu migration peer.
 - General provider-level snapshot create/list/delete support is planned but not implemented.
 - Volume shrinking and resize `--allocate` are intentionally unsupported.
 
 ## Next Work
 
 - Finish the full ephemeral lab with TrueNAS included.
-- Stabilize and then enable the disposable-guest migration gate by default.
 - Implement general provider-level zvol snapshot management.
 - Define and enforce package retention for public repositories.
 - Add stronger automated delete dependency tests after package rebuild.

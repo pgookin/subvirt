@@ -906,7 +906,17 @@ cat >/etc/truenas-libvirt/config.json <<'EOF'
 {payload}
 EOF
 chmod 0640 /etc/truenas-libvirt/config.json
-systemctl daemon-reload
+for attempt in $(seq 1 30); do
+  systemctl daemon-reload
+  if systemctl list-unit-files truenas-libvirt-provider.service --no-legend | grep -q '^truenas-libvirt-provider.service'; then
+    break
+  fi
+  if [ "$attempt" = 30 ]; then
+    echo "truenas-libvirt-provider.service unit file did not appear" >&2
+    exit 1
+  fi
+  sleep 2
+done
 systemctl enable --now truenas-libvirt-provider.service
 systemctl restart truenas-libvirt-provider.service
 """

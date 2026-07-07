@@ -679,8 +679,20 @@ def publish_repo(lab: Lab, artifacts: Path) -> None:
         print(f"+ write {published_marker(lab)} with distros={distros}")
 
 
+def ssh_known_host_name(host: str) -> str:
+    return host.rsplit("@", 1)[-1]
+
+
 def ssh(host: str, command: str, lab: Lab) -> str:
-    return run([*ssh_base_args(lab), host, command], lab.execute)
+    argv = [*ssh_base_args(lab), host, command]
+    try:
+        return run(argv, lab.execute)
+    except subprocess.CalledProcessError as exc:
+        output = exc.output or ""
+        if "REMOTE HOST IDENTIFICATION HAS CHANGED" not in output and "Host key verification failed" not in output:
+            raise
+        clear_known_host(lab, ssh_known_host_name(host))
+        return run(argv, lab.execute)
 
 
 def repo_url(lab: Lab) -> str:

@@ -327,15 +327,15 @@ def promotion_preflight(ctx: Context) -> None:
     web_root = public["web_root"]
     command = " && ".join([
         "set -euo pipefail",
-        f"test -x {q(public['publish_script'])}",
-        "for tool in gpg rpmsign createrepo_c gzip python3; do command -v \"$tool\" >/dev/null; done",
-        f"test -d {q(incoming_parent)}",
-        f"test -w {q(incoming_parent)}",
-        f"test -d {q(web_root)}",
-        f"test -w {q(web_root)}",
+        "check() { label=$1; shift; echo \"preflight: $label\"; \"$@\"; }",
+        f"check publish_script test -x {q(public['publish_script'])}",
+        "for tool in gpg rpmsign createrepo_c gzip python3; do check tool-$tool command -v \"$tool\" >/dev/null; done",
+        f"if test -d {q(incoming_root)}; then check incoming_root_writable test -w {q(incoming_root)}; else check incoming_parent_writable test -w {q(incoming_parent)} && install -d -m 0755 {q(incoming_root)}; fi",
+        f"check web_root test -d {q(web_root)}",
+        f"check web_root_writable test -w {q(web_root)}",
         f"mkdir -p {q(web_root + '/apt/ubuntu')} {q(web_root + '/yum')} {q(web_root + '/keys')}",
-        f"df -Pk {q(incoming_parent)} {q(web_root)} | awk 'NR > 1 {{ if ($4 < 2097152) {{ print \"insufficient free space on \" $6 \": \" $4 \" KiB\"; exit 1 }} }}'",
-        f"gpg --batch --list-secret-keys {q(public['gpg_name'])} >/dev/null",
+        f"df -Pk {q(incoming_root)} {q(web_root)} | awk 'NR > 1 {{ if ($4 < 2097152) {{ print \"insufficient free space on \" $6 \": \" $4 \" KiB\"; exit 1 }} }}'",
+        f"check gpg_key gpg --batch --list-secret-keys {q(public['gpg_name'])} >/dev/null",
     ])
     remote(public["host"], command, ctx)
 

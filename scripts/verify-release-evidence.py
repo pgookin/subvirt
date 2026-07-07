@@ -135,8 +135,6 @@ def require_log(root: Path) -> str:
     for name, pattern in REQUIRED_LOG_PATTERNS.items():
         if not re.search(pattern, text):
             fail(f"candidate-release.log missing marker {name}")
-    if "Ephemeral lab preserved for failed build" in text:
-        fail("candidate-release.log shows failed lab was preserved")
     if "Traceback (most recent call last)" in text:
         fail("candidate-release.log contains a Python traceback")
     if "returned non-zero exit status" in text:

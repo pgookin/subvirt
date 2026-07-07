@@ -7,7 +7,7 @@ on:
         description: Existing tested build ID to publish to public stable
         required: true
       scope:
-        description: Candidate scope: auto, provider, or full
+        description: "Candidate scope: auto, provider, or full"
         required: false
         default: auto
       require_codex_gate:

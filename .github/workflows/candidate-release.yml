@@ -29,7 +29,7 @@ on:
         required: false
         default: "false"
       build_scope:
-        description: Build scope: full or provider
+        description: "Build scope: full or provider"
         required: false
         default: "full"
 

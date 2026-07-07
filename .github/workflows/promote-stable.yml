@@ -29,8 +29,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh run download --repo "$GITHUB_REPOSITORY" --name "release-evidence-${{ inputs.build_id }}" --dir "artifacts/${{ inputs.build_id }}"
-      - name: Deterministic promotion gate
-        run: ./scripts/verify-release-evidence.py --build-id "${{ inputs.build_id }}" --scope "${{ inputs.scope }}"
+      - name: Promotion preflight
+        run: ./scripts/release.py promotion-preflight --config "$SUBVIRT_RELEASE_CONFIG" --build-id "${{ inputs.build_id }}" --scope "${{ inputs.scope }}" --execute
       - name: Codex promotion gate
         continue-on-error: ${{ !inputs.require_codex_gate }}
         run: ./scripts/codex-release-gate.sh "${{ inputs.build_id }}"
@@ -38,6 +38,8 @@ jobs:
         run: ./scripts/release.py publish-public-stable --config "$SUBVIRT_RELEASE_CONFIG" --build-id "${{ inputs.build_id }}" --execute
       - name: Verify public stable
         run: ./scripts/release.py verify-public-stable --config "$SUBVIRT_RELEASE_CONFIG" --build-id "${{ inputs.build_id }}" --execute
+      - name: Write promotion evidence
+        run: ./scripts/release.py write-promotion-evidence --config "$SUBVIRT_RELEASE_CONFIG" --build-id "${{ inputs.build_id }}" --scope "${{ inputs.scope }}" --execute
       - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:

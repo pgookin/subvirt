@@ -8,6 +8,7 @@ commands that build, publish, test, or promote packages.
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import shlex
 import socket
@@ -28,6 +29,7 @@ class Context:
     build_id: str
     test_id_override: str | None = None
     lab_mode: str = "full"
+    promotion_scope: str = "auto"
 
 
 def q(value: str) -> str:
@@ -308,6 +310,36 @@ def artifact_files(ctx: Context, distro: str, suffix: str) -> list[Path]:
     return sorted(path for path in root.iterdir() if path.is_file() and path.name.endswith(suffix))
 
 
+def validate_release_evidence(ctx: Context) -> None:
+    run([
+        sys.executable,
+        "scripts/verify-release-evidence.py",
+        "--build-id", ctx.build_id,
+        "--scope", ctx.promotion_scope,
+    ], ctx.execute)
+
+
+def promotion_preflight(ctx: Context) -> None:
+    validate_release_evidence(ctx)
+    public = require_public_repo(ctx)
+    incoming_root = public["incoming_root"].rstrip("/")
+    incoming_parent = str(Path(incoming_root).parent)
+    web_root = public["web_root"]
+    command = " && ".join([
+        "set -euo pipefail",
+        f"test -x {q(public['publish_script'])}",
+        "for tool in gpg rpmsign createrepo_c gzip python3; do command -v \"$tool\" >/dev/null; done",
+        f"test -d {q(incoming_parent)}",
+        f"test -w {q(incoming_parent)}",
+        f"test -d {q(web_root)}",
+        f"test -w {q(web_root)}",
+        f"mkdir -p {q(web_root + '/apt/ubuntu')} {q(web_root + '/yum')} {q(web_root + '/keys')}",
+        f"df -Pk {q(incoming_parent)} {q(web_root)} | awk 'NR > 1 {{ if ($4 < 2097152) {{ print \"insufficient free space on \" $6 \": \" $4 \" KiB\"; exit 1 }} }}'",
+        f"gpg --batch --list-secret-keys {q(public['gpg_name'])} >/dev/null",
+    ])
+    remote(public["host"], command, ctx)
+
+
 def publish_public_stable(ctx: Context) -> None:
     public = require_public_repo(ctx)
     remote_base = f"{public['incoming_root'].rstrip('/')}/{ctx.build_id}"
@@ -345,7 +377,7 @@ def check_url(url: str, execute: bool) -> None:
             raise RuntimeError(f"{url} returned HTTP {response.status}")
 
 
-def verify_public_stable(ctx: Context) -> None:
+def public_stable_urls(ctx: Context) -> list[str]:
     public = require_public_repo(ctx)
     base = public["base_url"]
     urls = [
@@ -374,8 +406,48 @@ def verify_public_stable(ctx: Context) -> None:
         urls.extend(f"{base}/yum/{yum_path}/stable/{path.name}" for path in rpms)
     if not debs and not rpms:
         raise SystemExit(f"no public-verifiable packages found in artifacts/{ctx.build_id}")
-    for url in urls:
+    return urls
+
+
+def verify_public_stable(ctx: Context) -> None:
+    for url in public_stable_urls(ctx):
         check_url(url, ctx.execute)
+
+
+def write_promotion_evidence(ctx: Context) -> None:
+    root = Path("artifacts") / ctx.build_id
+    evidence_path = root / "release-evidence.json"
+    if not evidence_path.is_file():
+        raise SystemExit(f"missing release evidence: {evidence_path}")
+    release_evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    public = require_public_repo(ctx)
+    packages = []
+    for pkg in release_evidence.get("packages", []):
+        rel = pkg.get("path")
+        name = Path(str(rel)).name if rel else str(pkg.get("name", ""))
+        packages.append({
+            "name": pkg.get("name"),
+            "filename": name,
+            "format": pkg.get("format"),
+            "architecture": pkg.get("architecture"),
+            "version": pkg.get("version"),
+            "release": pkg.get("release"),
+            "sha256": pkg.get("sha256"),
+            "size": pkg.get("size"),
+        })
+    promotion = {
+        "build_id": ctx.build_id,
+        "scope": ctx.promotion_scope,
+        "promoted_at": datetime.datetime.now(datetime.UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "public_base_url": public["base_url"],
+        "apt_distribution": public["apt_distribution"],
+        "yum_distro_path": public["yum_distro_path"],
+        "packages": packages,
+        "verified_urls": public_stable_urls(ctx),
+    }
+    output = root / "promotion-evidence.json"
+    output.write_text(json.dumps(promotion, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(output)
 
 MIGRATION_SSH_IDENTITY_REMOTE = "/root/.ssh/subvirt_migration_key"
 MIGRATION_SSH_KNOWN_HOSTS_REMOTE = "/root/.ssh/subvirt_known_hosts"
@@ -670,8 +742,10 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
         "test-ubuntu-artifacts",
         "test-alma-artifacts",
         "publish-staging",
+        "promotion-preflight",
         "publish-public-stable",
         "verify-public-stable",
+        "write-promotion-evidence",
         "test-staging",
         "test-lab",
         "promote",
@@ -682,13 +756,14 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
     parser.add_argument("--build-id", required=True)
     parser.add_argument("--test-id", help="override the storage test ID while using artifacts from --build-id")
     parser.add_argument("--lab-mode", choices=["full", "provider"], default="full", help="ephemeral lab package installation mode")
+    parser.add_argument("--scope", choices=["auto", "provider", "full"], default="auto", help="promotion evidence scope")
     parser.add_argument("--execute", action="store_true", help="actually run commands; default is dry-run")
     return parser.parse_args(list(argv))
 
 
 def main(argv: Iterable[str] = sys.argv[1:]) -> int:
     args = parse_args(argv)
-    ctx = Context(load_config(Path(args.config)), args.execute, args.ref, args.build_id, args.test_id, args.lab_mode)
+    ctx = Context(load_config(Path(args.config)), args.execute, args.ref, args.build_id, args.test_id, args.lab_mode, args.scope)
     actions = {
         "checkout-build": lambda: checkout_build(ctx),
         "build": lambda: (build_ubuntu(ctx), build_alma(ctx)),
@@ -704,8 +779,10 @@ def main(argv: Iterable[str] = sys.argv[1:]) -> int:
         "test-ubuntu-artifacts": lambda: install_ubuntu_artifacts(ctx),
         "test-alma-artifacts": lambda: install_alma_artifacts(ctx),
         "publish-staging": lambda: publish_staging(ctx),
+        "promotion-preflight": lambda: promotion_preflight(ctx),
         "publish-public-stable": lambda: publish_public_stable(ctx),
         "verify-public-stable": lambda: verify_public_stable(ctx),
+        "write-promotion-evidence": lambda: write_promotion_evidence(ctx),
         "test-staging": lambda: test_staging(ctx),
         "test-lab": lambda: test_ephemeral_lab(ctx),
         "promote": lambda: promote(ctx),

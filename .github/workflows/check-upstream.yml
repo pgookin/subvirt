@@ -105,6 +105,7 @@ jobs:
           BUILD_ID: ${{ steps.release_inputs.outputs.build_id }}
         run: |
           set -euo pipefail
+          ./scripts/verify-release-evidence.py --build-id "$BUILD_ID" --scope auto
           ./scripts/release.py publish-public-stable --config "$SUBVIRT_RELEASE_CONFIG" --build-id "$BUILD_ID" --execute
           ./scripts/release.py verify-public-stable --config "$SUBVIRT_RELEASE_CONFIG" --build-id "$BUILD_ID" --execute
       - name: Merge upstream refresh PR

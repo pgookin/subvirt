@@ -11,6 +11,7 @@ PROMOTE_STABLE=${PROMOTE_STABLE:-false}
 BUILD_UBUNTU=${BUILD_UBUNTU:-true}
 BUILD_ALMA=${BUILD_ALMA:-true}
 BUILD_SCOPE=${BUILD_SCOPE:-full}
+REQUIRE_CODEX_GATE=${REQUIRE_CODEX_GATE:-false}
 
 CANDIDATE_LOG_DIR=${CANDIDATE_LOG_DIR:-artifacts/$BUILD_ID}
 CANDIDATE_LOG_FILE=${CANDIDATE_LOG_FILE:-$CANDIDATE_LOG_DIR/candidate-release.log}
@@ -36,6 +37,7 @@ summary "- Promote stable: \`$PROMOTE_STABLE\`"
 summary "- Build Ubuntu: \`$BUILD_UBUNTU\`"
 summary "- Build Alma: \`$BUILD_ALMA\`"
 summary "- Build scope: \`$BUILD_SCOPE\`"
+summary "- Require Codex gate: \`$REQUIRE_CODEX_GATE\`"
 
 remote_quote() {
   python3 -c 'import shlex, sys; print(shlex.quote(sys.argv[1]))' "$1"
@@ -157,9 +159,14 @@ else
 fi
 
 ./scripts/write-release-evidence.py --build-id "$BUILD_ID"
+./scripts/verify-release-evidence.py --build-id "$BUILD_ID" --scope "$BUILD_SCOPE"
 
 if [[ "$PROMOTE_STABLE" == "true" ]]; then
-  ./scripts/codex-release-gate.sh "$BUILD_ID"
+  if [[ "$REQUIRE_CODEX_GATE" == "true" ]]; then
+    ./scripts/codex-release-gate.sh "$BUILD_ID"
+  else
+    ./scripts/codex-release-gate.sh "$BUILD_ID" || echo "Codex promotion review did not pass; continuing because REQUIRE_CODEX_GATE=false"
+  fi
   ./scripts/release.py publish-public-stable --config "$CONFIG" --build-id "$BUILD_ID" --execute
   ./scripts/release.py verify-public-stable --config "$CONFIG" --build-id "$BUILD_ID" --execute
 fi

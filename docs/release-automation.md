@@ -52,7 +52,7 @@ When the upstream libvirt checker detects a new parent package, `scripts/update-
 
 `scripts/write-upstream-manifest.py` records the durable refresh proof in `release/upstream-manifests/`. These manifests are committed with the lock update and include the upstream source file checksums, tracked patch checksums, generated local version, and a small generated-output check. Generated source trees, downloaded source packages, binary packages, and repo metadata are still not committed.
 
-When the upstream check workflow detects a newer parent package, it refreshes generated source inputs, writes manifests, and opens or updates `automation/upstream-libvirt-refresh`. The candidate build runs from that PR branch. If the candidate build and ephemeral lab test pass, the workflow comments with the evidence URL. Scheduled runs finalize automatically by publishing the tested build to the public stable repository, verifying the public HTTPS metadata and package URLs, and then merging the PR. Manual `workflow_dispatch` runs default to `finalize=false`, which exercises the production path but skips public publishing and merging; set `finalize=true` only when you want the manual run to publish stable. If refresh, build, test, public publish, or verification fails, the PR is not merged.
+When the upstream check workflow detects a newer parent package, it refreshes generated source inputs, writes manifests, and opens or updates `automation/upstream-libvirt-refresh`. The candidate build runs from that PR branch. If the candidate build and ephemeral lab test pass, the workflow comments with the evidence URL. Scheduled runs finalize automatically by running the deterministic release-evidence gate, publishing the tested build to the public stable repository, verifying the public HTTPS metadata and package URLs, and then merging the PR. Manual `workflow_dispatch` runs default to `finalize=false`, which exercises the production path but skips public publishing and merging; set `finalize=true` only when you want the manual run to publish stable. If refresh, build, evidence validation, test, public publish, or verification fails, the PR is not merged.
 
 ## Commands
 
@@ -80,6 +80,12 @@ Run individual phases:
 ./scripts/release.py verify-public-stable --config release/release.json --build-id 0.1.0-1 --execute
 ```
 
+Validate release evidence before public promotion:
+
+```sh
+./scripts/verify-release-evidence.py --build-id 0.1.0-1 --scope auto
+```
+
 Use `--test-id` to rerun storage tests against the same artifact directory without reusing volume names:
 
 ```sh
@@ -93,7 +99,7 @@ Run a provider-only release candidate when only `truenas-libvirt-provider` chang
 BUILD_ID=0.2.1-provider-1 BUILD_SCOPE=provider PROMOTE_STABLE=false ./scripts/run-candidate-release.sh
 ```
 
-Provider-only candidates build the Ubuntu and Alma provider packages, create fresh ephemeral lab VMs, install patched libvirt and virt-manager from the current stable repo, install the staged provider package from the per-run lab repo, and run the same TrueNAS storage gate, including the Ubuntu-to-Ubuntu live-migration smoke gate when enabled in the lab config. Provider-only candidates require `lab.enabled=true` and `truenas.api_key` in the local lab config. Set `PROMOTE_STABLE=true` only when that provider build should be published to the public stable repository.
+Provider-only candidates build the Ubuntu and Alma provider packages, create fresh ephemeral lab VMs, install patched libvirt and virt-manager from the current stable repo, install the staged provider package from the per-run lab repo, and run the same TrueNAS storage gate, including the Ubuntu-to-Ubuntu live-migration smoke gate when enabled in the lab config. Provider-only candidates require `lab.enabled=true` and `truenas.api_key` in the local lab config. Each candidate writes `artifacts/<build-id>/candidate-release.log` and must pass `scripts/verify-release-evidence.py` before stable publishing. Set `PROMOTE_STABLE=true` only when that provider build should be published to the public stable repository; Codex review is advisory by default and becomes blocking only with `REQUIRE_CODEX_GATE=true`.
 
 ## Build Helpers
 

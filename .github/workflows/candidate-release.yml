@@ -21,9 +21,13 @@ on:
         description: Alma libvirt package version to refresh, when refresh_sources=true
         required: false
       promote_stable:
-        description: Run Codex gate and publish to public stable after tests pass
+        description: Publish to public stable after deterministic tests pass
         required: false
-        default: "true"
+        default: "false"
+      require_codex_gate:
+        description: Require Codex review to pass before stable publish
+        required: false
+        default: "false"
       build_scope:
         description: Build scope: full or provider
         required: false
@@ -48,6 +52,7 @@ jobs:
           UBUNTU_VERSION: ${{ inputs.ubuntu_version }}
           ALMA_VERSION: ${{ inputs.alma_version }}
           PROMOTE_STABLE: ${{ inputs.promote_stable }}
+          REQUIRE_CODEX_GATE: ${{ inputs.require_codex_gate }}
           BUILD_SCOPE: ${{ inputs.build_scope }}
         run: ./scripts/run-candidate-release.sh
       - uses: actions/upload-artifact@v7.0.1

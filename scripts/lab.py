@@ -760,8 +760,7 @@ EOF
 apt-get clean
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get --fix-broken install -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold
-DEBIAN_FRONTEND=noninteractive apt-get full-upgrade -y --allow-downgrades -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold
-DEBIAN_FRONTEND=noninteractive apt-get install -y --allow-downgrades truenas-libvirt-provider libvirt-daemon-system libvirt-daemon-driver-qemu libvirt-daemon-driver-storage-truenas virt-manager virtinst open-iscsi nvme-cli qemu-utils
+DEBIAN_FRONTEND=noninteractive apt-get install -y --allow-downgrades -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold truenas-libvirt-provider libvirt-daemon-system libvirt-daemon-driver-qemu libvirt-daemon-driver-storage-truenas virt-manager virtinst open-iscsi nvme-cli qemu-utils
 if ! modprobe nvme-tcp 2>/dev/null; then
   DEBIAN_FRONTEND=noninteractive apt-get install -y "linux-modules-extra-$(uname -r)"
   modprobe nvme-tcp

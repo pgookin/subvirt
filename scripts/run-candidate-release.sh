@@ -21,6 +21,19 @@ if [[ "${SUBVIRT_CANDIDATE_LOGGING:-true}" == "true" ]]; then
   echo "Candidate release log: $CANDIDATE_LOG_FILE"
 fi
 
+collect_failure_diagnostics() {
+  local rc=$?
+  trap - ERR
+  echo "Candidate release failed with exit code $rc; collecting diagnostics"
+  ./scripts/collect-candidate-diagnostics.py \
+    --build-id "$BUILD_ID" \
+    --config "$CONFIG" \
+    --candidate-log "$CANDIDATE_LOG_FILE" || echo "Candidate diagnostic collection failed; preserving original failure"
+  exit "$rc"
+}
+
+trap collect_failure_diagnostics ERR
+
 summary() {
   if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     printf '%s\n' "$*" >>"$GITHUB_STEP_SUMMARY"

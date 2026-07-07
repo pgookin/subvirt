@@ -450,6 +450,28 @@ def domain_state(lab: Lab, name: str) -> str | None:
     return None
 
 
+def domain_names(lab: Lab) -> list[str]:
+    return [line.strip() for line in virsh("list", "--all", "--name", lab=lab).splitlines() if line.strip()]
+
+
+def destroy_domain(lab: Lab, name: str) -> None:
+    run_shell(f"virsh -c qemu:///system destroy {q(name)} || true", lab.execute)
+    run_shell(f"virsh -c qemu:///system undefine {q(name)} --nvram || true", lab.execute)
+
+
+def cleanup_stale_ephemeral_domains(lab: Lab) -> None:
+    if not lab.config["lab"].get("cleanup_stale_ephemeral_domains", True):
+        return
+    prefix = f"{lab.config['lab']['name_prefix']}-"
+    current_prefix = f"{prefix}{lab.build_id}-"
+    persistent_truenas = persistent_truenas_name(lab)
+    for name in domain_names(lab):
+        if not name.startswith(prefix) or name.startswith(current_prefix) or name == persistent_truenas:
+            continue
+        print(f"removing stale ephemeral lab domain {name}")
+        destroy_domain(lab, name)
+
+
 def ensure_persistent_truenas(lab: Lab) -> None:
     ensure_dirs(lab)
     ensure_networks(lab)
@@ -573,6 +595,7 @@ def doctor_truenas(lab: Lab) -> None:
 
 def create_linux_lab(lab: Lab) -> None:
     ensure_dirs(lab)
+    cleanup_stale_ephemeral_domains(lab)
     ensure_networks(lab)
     create_cloud_vm(lab, "ubuntu", 10)
     create_cloud_vm(lab, "alma", 20)
@@ -874,6 +897,32 @@ systemctl list-unit-files virtqemud.service --no-legend | grep -q . && systemctl
             ssh(f"root@{host}", alma_cmd, lab)
         else:
             raise SystemExit(f"unsupported Linux VM distro {distro!r} for {key}")
+        wait_for_ssh(lab, host, key)
+        verify_provider_package(lab, key)
+
+
+def verify_provider_package(lab: Lab, vm_key: str) -> None:
+    host = lab.config["vms"][vm_key]["management_ip"]
+    distro = vm_distro(lab, vm_key)
+    if distro == "ubuntu":
+        command = """
+set -euo pipefail
+dpkg-query -W -f='${db:Status-Abbrev} ${Package} ${Version}\n' truenas-libvirt-provider libvirt-daemon-driver-storage-truenas
+dpkg-query -W -f='${db:Status-Abbrev}' truenas-libvirt-provider | grep -q '^ii '
+if ! test -e /lib/systemd/system/truenas-libvirt-provider.service && ! test -e /usr/lib/systemd/system/truenas-libvirt-provider.service; then
+  echo "truenas-libvirt-provider.service is missing after package install" >&2
+  exit 1
+fi
+"""
+    elif distro == "alma":
+        command = """
+set -euo pipefail
+rpm -q truenas-libvirt-provider libvirt-daemon-driver-storage-truenas
+test -e /usr/lib/systemd/system/truenas-libvirt-provider.service
+"""
+    else:
+        raise SystemExit(f"unsupported Linux VM distro {distro!r} for {vm_key}")
+    ssh(f"root@{host}", command, lab)
 
 
 def configure_provider_configs(lab: Lab, vm_keys: Iterable[str] | None = None) -> None:
@@ -1008,8 +1057,7 @@ def destroy_lab(lab: Lab) -> None:
         name = prefix + lab.config["vms"][key]["name"]
         existing = virsh("list", "--all", lab=lab)
         if name in existing:
-            run_shell(f"virsh -c qemu:///system destroy {q(name)} || true", lab.execute)
-            run_shell(f"virsh -c qemu:///system undefine {q(name)} --nvram || true", lab.execute)
+            destroy_domain(lab, name)
     for path in sorted(lab.image_dir.glob(f"{lab.build_id}-*.qcow2")):
         if lab.execute:
             path.unlink(missing_ok=True)

@@ -12,6 +12,14 @@ BUILD_UBUNTU=${BUILD_UBUNTU:-true}
 BUILD_ALMA=${BUILD_ALMA:-true}
 BUILD_SCOPE=${BUILD_SCOPE:-full}
 
+CANDIDATE_LOG_DIR=${CANDIDATE_LOG_DIR:-artifacts/$BUILD_ID}
+CANDIDATE_LOG_FILE=${CANDIDATE_LOG_FILE:-$CANDIDATE_LOG_DIR/candidate-release.log}
+if [[ "${SUBVIRT_CANDIDATE_LOGGING:-true}" == "true" ]]; then
+  mkdir -p "$CANDIDATE_LOG_DIR"
+  exec > >(tee -a "$CANDIDATE_LOG_FILE") 2>&1
+  echo "Candidate release log: $CANDIDATE_LOG_FILE"
+fi
+
 summary() {
   if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     printf '%s\n' "$*" >>"$GITHUB_STEP_SUMMARY"

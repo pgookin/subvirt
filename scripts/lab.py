@@ -240,6 +240,15 @@ def ssh_base_args(lab: Lab) -> list[str]:
     ]
 
 
+def clear_known_host(lab: Lab, host: str) -> None:
+    known_hosts = lab.run_dir / "known_hosts"
+    if lab.execute:
+        known_hosts.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["ssh-keygen", "-R", host, "-f", str(known_hosts)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+    else:
+        print(f"+ ssh-keygen -R {host} -f {known_hosts}")
+
+
 def write_cloud_init(lab: Lab, name: str, distro: str, mgmt_mac: str, storage_mac: str, mgmt_ip: str, storage_ip: str) -> Path:
     keys = "\n".join(f"      - {key}" for key in ssh_keys(lab.config))
     package_update = "true" if distro == "ubuntu" else "false"
@@ -683,6 +692,7 @@ def repo_url(lab: Lab) -> str:
 
 
 def wait_for_ssh(lab: Lab, host: str, label: str, attempts: int = 60) -> None:
+    clear_known_host(lab, host)
     target = f"root@{host}"
     for attempt in range(1, attempts + 1):
         try:

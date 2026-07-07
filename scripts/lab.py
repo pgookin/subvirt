@@ -240,6 +240,15 @@ def ssh_base_args(lab: Lab) -> list[str]:
     ]
 
 
+def clear_known_host(lab: Lab, host: str) -> None:
+    known_hosts = lab.run_dir / "known_hosts"
+    if lab.execute:
+        known_hosts.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["ssh-keygen", "-R", host, "-f", str(known_hosts)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+    else:
+        print(f"+ ssh-keygen -R {host} -f {known_hosts}")
+
+
 def write_cloud_init(lab: Lab, name: str, distro: str, mgmt_mac: str, storage_mac: str, mgmt_ip: str, storage_ip: str) -> Path:
     keys = "\n".join(f"      - {key}" for key in ssh_keys(lab.config))
     package_update = "true" if distro == "ubuntu" else "false"
@@ -341,7 +350,7 @@ def create_cloud_vm(lab: Lab, vm_key: str, offset: int) -> None:
         run(["qemu-img", "create", "-f", "qcow2", "-F", "qcow2", "-b", str(base), str(disk), vm["disk_size"]], lab.execute)
     mgmt_mac = mac_for(lab.build_id, offset)
     storage_mac = mac_for(lab.build_id, offset + 100)
-    seed = write_cloud_init(lab, name, vm_key, mgmt_mac, storage_mac, vm["management_ip"], vm["storage_ip"])
+    seed = write_cloud_init(lab, name, vm_distro(lab, vm_key), mgmt_mac, storage_mac, vm["management_ip"], vm["storage_ip"])
     run([
         "virt-install", "--connect", "qemu:///system", "--name", name,
         "--memory", str(vm["memory_mib"]), "--vcpus", str(vm["vcpus"]),
@@ -413,11 +422,162 @@ def create_truenas_vm(lab: Lab) -> None:
         print(message)
 
 
+def persistent_truenas_name(lab: Lab) -> str:
+    return str(lab.config["vms"]["truenas"].get("persistent_name", "subvirt-lab-truenas"))
+
+
+def persistent_truenas_boot_disk(lab: Lab) -> Path:
+    vm = lab.config["vms"]["truenas"]
+    return Path(vm.get("persistent_boot_disk", lab.image_dir / "truenas-lab-boot.qcow2"))
+
+
+def persistent_truenas_data_disks(lab: Lab) -> list[Path]:
+    vm = lab.config["vms"]["truenas"]
+    configured = vm.get("persistent_data_disks")
+    if configured:
+        return [Path(item) for item in configured]
+    return [lab.image_dir / f"truenas-lab-data{index}.qcow2" for index, _ in enumerate(vm.get("data_disks", []), start=1)]
+
+
+def domain_state(lab: Lab, name: str) -> str | None:
+    output = virsh("list", "--all", lab=lab)
+    for line in output.splitlines():
+        parts = line.split()
+        if len(parts) >= 3 and parts[1] == name:
+            return " ".join(parts[2:])
+        if parts and parts[0] == name:
+            return " ".join(parts[1:])
+    return None
+
+
+def ensure_persistent_truenas(lab: Lab) -> None:
+    ensure_dirs(lab)
+    ensure_networks(lab)
+    vm = lab.config["vms"]["truenas"]
+    name = persistent_truenas_name(lab)
+    state = domain_state(lab, name)
+    if state:
+        if "running" not in state:
+            virsh("start", name, lab=lab)
+        print(f"persistent TrueNAS VM {name} already exists")
+        return
+
+    iso_url = vm["iso_url"]
+    iso = lab.cache_dir / Path(iso_url).name
+    download(iso_url, iso, vm.get("iso_sha256"), lab.execute)
+
+    boot_disk = persistent_truenas_boot_disk(lab)
+    if not boot_disk.exists() or not lab.execute:
+        run(["qemu-img", "create", "-f", "qcow2", str(boot_disk), vm["boot_disk_size"]], lab.execute)
+
+    data_disks = persistent_truenas_data_disks(lab)
+    for path, size in zip(data_disks, vm.get("data_disks", [])):
+        if not path.exists() or not lab.execute:
+            run(["qemu-img", "create", "-f", "qcow2", str(path), size], lab.execute)
+
+    mgmt_mac = str(vm.get("persistent_management_mac", mac_for("persistent-truenas", 30)))
+    storage_mac = str(vm.get("persistent_storage_mac", mac_for("persistent-truenas", 130)))
+    cmd = [
+        "virt-install", "--connect", "qemu:///system", "--name", name,
+        "--memory", str(vm["memory_mib"]), "--vcpus", str(vm["vcpus"]),
+        "--os-variant", vm.get("os_variant", "generic"),
+        "--disk", f"path={boot_disk},format=qcow2,bus=sata",
+    ]
+    for data in data_disks:
+        cmd += ["--disk", f"path={data},format=qcow2,bus=virtio"]
+    cmd += [
+        "--cdrom", str(iso),
+        "--boot", "cdrom,hd",
+        "--network", f"network={lab.config['networks']['management']['name']},model=virtio,mac={mgmt_mac}",
+        "--network", f"network={lab.config['networks']['storage']['name']},model=virtio,mac={storage_mac}",
+        "--graphics", "vnc,listen=127.0.0.1", "--noautoconsole",
+    ]
+    run(cmd, lab.execute)
+    display = ""
+    if lab.execute:
+        display = virsh("domdisplay", name, lab=lab).strip()
+    print(textwrap.dedent(f"""
+    Persistent TrueNAS VM {name} has been created.
+
+    Complete the TrueNAS installer once through the VM console, then configure:
+      management IP: {lab.config['truenas']['management_ip']}
+      storage IP:    {lab.config['truenas']['storage_ip']}
+      test pools:    {lab.config['tests']['iscsi_truenas_pool']}, {lab.config['tests']['nvmeof_truenas_pool']}
+      API user/key:  store the key only in the local lab config
+
+    Console display: {display or 'run virsh -c qemu:///system domdisplay ' + name}
+    """).strip())
+
+
+def wait_for_tcp(host: str, port: int, label: str, execute: bool, attempts: int = 60) -> None:
+    for attempt in range(1, attempts + 1):
+        try:
+            run_shell(f"timeout 5 bash -lc '</dev/tcp/{q(host)}/{int(port)}'", execute)
+            return
+        except subprocess.CalledProcessError:
+            if attempt == attempts:
+                raise SystemExit(f"timeout waiting for {label} at {host}:{port}")
+            time.sleep(5)
+
+
+def wait_truenas(lab: Lab) -> None:
+    ensure_networks(lab)
+    state = domain_state(lab, persistent_truenas_name(lab))
+    if state and "running" not in state:
+        virsh("start", persistent_truenas_name(lab), lab=lab)
+    wait_for_tcp(str(lab.config["truenas"]["management_ip"]), 443, "TrueNAS API", lab.execute)
+
+
+def truenas_api_config(lab: Lab) -> Path:
+    t = lab.config["truenas"]
+    api_key = t.get("api_key")
+    if not api_key:
+        raise SystemExit("truenas.api_key is required in the local lab config")
+    if lab.execute:
+        lab.run_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        print(f"+ mkdir -p {lab.run_dir}")
+    api_key_path = lab.run_dir / "truenas-api-key"
+    config_path = lab.run_dir / "truenas-provider-config.json"
+    if lab.execute:
+        api_key_path.write_text(str(api_key).strip() + "\n", encoding="utf-8")
+        os.chmod(api_key_path, 0o600)
+        config_path.write_text(json.dumps({
+            "truenas": {
+                "url": f"wss://{t['management_ip']}/api/current",
+                "username": t.get("username", "root"),
+                "api_key_file": str(api_key_path),
+                "tls_verify": False,
+                "target_ip": t["storage_ip"],
+            },
+            "namespace": {"dataset": t.get("dataset", "libvirt")},
+        }, indent=2) + "\n", encoding="utf-8")
+    else:
+        print(f"+ write {config_path}")
+    return config_path
+
+
+def doctor_truenas(lab: Lab) -> None:
+    wait_truenas(lab)
+    config_path = truenas_api_config(lab)
+    output = run([sys.executable, str(ROOT / "truenas_provider.py"), "--config", str(config_path), "pool-list"], lab.execute)
+    if not lab.execute:
+        return
+    pools = {item.get("name") for item in json.loads(output)}
+    required = {lab.config["tests"]["iscsi_truenas_pool"], lab.config["tests"]["nvmeof_truenas_pool"]}
+    missing = sorted(required - pools)
+    if missing:
+        raise SystemExit(f"TrueNAS is missing required test pools: {', '.join(missing)}")
+    print(f"TrueNAS doctor OK: pools {', '.join(sorted(required))} are present")
+
+
 def create_linux_lab(lab: Lab) -> None:
     ensure_dirs(lab)
     ensure_networks(lab)
     create_cloud_vm(lab, "ubuntu", 10)
     create_cloud_vm(lab, "alma", 20)
+    if lab.config["tests"].get("run_migration", False) and "ubuntu_migration_peer" in lab.config["vms"]:
+        create_cloud_vm(lab, "ubuntu_migration_peer", 40)
     write_run_release_config(lab)
 
 
@@ -474,6 +634,18 @@ def published_distros(lab: Lab) -> list[str]:
     return ["ubuntu", "alma"]
 
 
+def vm_distro(lab: Lab, key: str) -> str:
+    return str(lab.config["vms"][key].get("distro", key))
+
+
+def linux_vm_keys(lab: Lab, package_distros: Iterable[str]) -> list[str]:
+    available = set(package_distros)
+    keys = [key for key in ("ubuntu", "alma") if key in lab.config["vms"] and vm_distro(lab, key) in available]
+    if lab.config["tests"].get("run_migration", False) and "ubuntu_migration_peer" in lab.config["vms"] and "ubuntu" in available:
+        keys.append("ubuntu_migration_peer")
+    return keys
+
+
 def publish_repo(lab: Lab, artifacts: Path) -> None:
     ensure_dirs(lab)
     write_run_release_config(lab)
@@ -507,8 +679,20 @@ def publish_repo(lab: Lab, artifacts: Path) -> None:
         print(f"+ write {published_marker(lab)} with distros={distros}")
 
 
+def ssh_known_host_name(host: str) -> str:
+    return host.rsplit("@", 1)[-1]
+
+
 def ssh(host: str, command: str, lab: Lab) -> str:
-    return run([*ssh_base_args(lab), host, command], lab.execute)
+    argv = [*ssh_base_args(lab), host, command]
+    try:
+        return run(argv, lab.execute)
+    except subprocess.CalledProcessError as exc:
+        output = exc.output or ""
+        if "REMOTE HOST IDENTIFICATION HAS CHANGED" not in output and "Host key verification failed" not in output:
+            raise
+        clear_known_host(lab, ssh_known_host_name(host))
+        return run(argv, lab.execute)
 
 
 def repo_url(lab: Lab) -> str:
@@ -520,6 +704,7 @@ def repo_url(lab: Lab) -> str:
 
 
 def wait_for_ssh(lab: Lab, host: str, label: str, attempts: int = 60) -> None:
+    clear_known_host(lab, host)
     target = f"root@{host}"
     for attempt in range(1, attempts + 1):
         try:
@@ -531,22 +716,102 @@ def wait_for_ssh(lab: Lab, host: str, label: str, attempts: int = 60) -> None:
             time.sleep(5)
 
 
-def wait_for_linux_vms(lab: Lab, distros: Iterable[str]) -> None:
-    for distro in distros:
-        host = lab.config["vms"][distro]["management_ip"]
-        wait_for_ssh(lab, host, distro)
+def wait_for_linux_vms(lab: Lab, vm_keys: Iterable[str]) -> None:
+    for key in vm_keys:
+        host = lab.config["vms"][key]["management_ip"]
+        wait_for_ssh(lab, host, key)
         ssh(f"root@{host}", "cloud-init status --wait || true", lab)
 
 
-def configure_linux_repos(lab: Lab, distros: Iterable[str] | None = None) -> None:
-    distros = list(distros or published_distros(lab))
-    ubuntu = lab.config["vms"]["ubuntu"]["management_ip"]
-    alma = lab.config["vms"]["alma"]["management_ip"]
+def configure_linux_repos(lab: Lab, vm_keys: Iterable[str] | None = None, mode: str = "full") -> None:
+    vm_keys = list(vm_keys or linux_vm_keys(lab, published_distros(lab)))
     url = repo_url(lab)
     suite = lab.config["repo"].get("apt_suite", "noble")
     component = lab.config["repo"].get("component", "staging")
     yum_path = lab.config["repo"].get("yum_distro_path", "almalinux/10")
-    ubuntu_cmd = f"""
+    stable_base_url = lab.config["repo"].get("stable_base_url", "https://repo.subvirt.net")
+    if mode == "provider":
+        ubuntu_cmd = f"""
+set -euo pipefail
+install -d -m 0755 /usr/share/keyrings /etc/apt/sources.list.d /etc/apt/preferences.d
+curl -fsSL {q(stable_base_url + '/keys/subvirt.gpg')} -o /usr/share/keyrings/subvirt-stable.gpg
+curl -fsSL {q(url + '/keys/subvirt.gpg')} -o /usr/share/keyrings/subvirt-staging.gpg
+cat >/etc/apt/sources.list.d/subvirt-stable.sources <<'EOF'
+Types: deb
+URIs: {stable_base_url}/apt/ubuntu
+Suites: {suite}
+Components: stable
+Architectures: amd64
+Signed-By: /usr/share/keyrings/subvirt-stable.gpg
+EOF
+cat >/etc/apt/sources.list.d/subvirt-staging.sources <<'EOF'
+Types: deb
+URIs: {url}/apt/ubuntu
+Suites: {suite}
+Components: {component}
+Architectures: amd64
+Signed-By: /usr/share/keyrings/subvirt-staging.gpg
+EOF
+cat >/etc/apt/preferences.d/subvirt-provider-staging <<'EOF'
+Package: truenas-libvirt-provider
+Pin: release c=staging
+Pin-Priority: 1001
+EOF
+apt-get clean
+apt-get update
+DEBIAN_FRONTEND=noninteractive apt-get --fix-broken install -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold
+DEBIAN_FRONTEND=noninteractive apt-get full-upgrade -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold
+DEBIAN_FRONTEND=noninteractive apt-get install -y truenas-libvirt-provider libvirt-daemon-system libvirt-daemon-driver-qemu libvirt-daemon-driver-storage-truenas virt-manager virtinst open-iscsi nvme-cli qemu-utils
+if ! modprobe nvme-tcp 2>/dev/null; then
+  DEBIAN_FRONTEND=noninteractive apt-get install -y "linux-modules-extra-$(uname -r)"
+  modprobe nvme-tcp
+fi
+
+systemctl daemon-reload
+for unit in virtqemud.socket virtstoraged.socket virtproxyd.socket virtlogd.socket virtlockd.socket; do
+  systemctl list-unit-files "$unit" --no-legend | grep -q . && systemctl enable --now "$unit" || true
+done
+for unit in virtstoraged.service libvirtd.service; do
+  systemctl list-unit-files "$unit" --no-legend | grep -q . && {{ systemctl restart "$unit"; break; }}
+done
+systemctl list-unit-files virtqemud.service --no-legend | grep -q . && systemctl restart virtqemud.service || true
+"""
+        alma_cmd = f"""
+set -euo pipefail
+curl -fsSL {q(stable_base_url + '/keys/subvirt.asc')} -o /etc/pki/rpm-gpg/RPM-GPG-KEY-subvirt-stable
+curl -fsSL {q(url + '/keys/subvirt.asc')} -o /etc/pki/rpm-gpg/RPM-GPG-KEY-subvirt-staging
+cat >/etc/yum.repos.d/subvirt-stable.repo <<'EOF'
+[subvirt-stable]
+name=Subvirt stable packages
+baseurl={stable_base_url}/yum/{yum_path}/stable
+enabled=1
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-subvirt-stable
+EOF
+cat >/etc/yum.repos.d/subvirt-lab.repo <<'EOF'
+[subvirt-lab]
+name=Subvirt Lab
+baseurl={url}/yum/{yum_path}/{component}
+enabled=1
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-subvirt-staging
+EOF
+dnf upgrade -y
+dnf install -y --disablerepo=subvirt-lab libvirt-daemon-kvm libvirt-daemon-driver-storage-truenas virt-manager virt-manager-common virt-install iscsi-initiator-utils nvme-cli qemu-img kmod
+dnf install -y --disablerepo=subvirt-stable truenas-libvirt-provider
+modprobe nvme-tcp
+
+systemctl daemon-reload
+for unit in virtqemud.socket virtstoraged.socket virtproxyd.socket virtlogd.socket virtlockd.socket; do
+  systemctl list-unit-files "$unit" --no-legend | grep -q . && systemctl enable --now "$unit" || true
+done
+for unit in virtstoraged.service libvirtd.service; do
+  systemctl list-unit-files "$unit" --no-legend | grep -q . && {{ systemctl restart "$unit"; break; }}
+done
+systemctl list-unit-files virtqemud.service --no-legend | grep -q . && systemctl restart virtqemud.service || true
+"""
+    else:
+        ubuntu_cmd = f"""
 set -euo pipefail
 install -d -m 0755 /usr/share/keyrings /etc/apt/sources.list.d
 curl -fsSL {q(url + '/keys/subvirt.gpg')} -o /usr/share/keyrings/subvirt.gpg
@@ -562,13 +827,22 @@ apt-get clean
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get --fix-broken install -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold
 DEBIAN_FRONTEND=noninteractive apt-get full-upgrade -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold
-DEBIAN_FRONTEND=noninteractive apt-get install -y truenas-libvirt-provider libvirt-daemon-system libvirt-daemon-driver-qemu libvirt-daemon-driver-storage-truenas virt-manager virtinst open-iscsi nvme-cli
+DEBIAN_FRONTEND=noninteractive apt-get install -y truenas-libvirt-provider libvirt-daemon-system libvirt-daemon-driver-qemu libvirt-daemon-driver-storage-truenas virt-manager virtinst open-iscsi nvme-cli qemu-utils
 if ! modprobe nvme-tcp 2>/dev/null; then
   DEBIAN_FRONTEND=noninteractive apt-get install -y "linux-modules-extra-$(uname -r)"
   modprobe nvme-tcp
 fi
+
+systemctl daemon-reload
+for unit in virtqemud.socket virtstoraged.socket virtproxyd.socket virtlogd.socket virtlockd.socket; do
+  systemctl list-unit-files "$unit" --no-legend | grep -q . && systemctl enable --now "$unit" || true
+done
+for unit in virtstoraged.service libvirtd.service; do
+  systemctl list-unit-files "$unit" --no-legend | grep -q . && {{ systemctl restart "$unit"; break; }}
+done
+systemctl list-unit-files virtqemud.service --no-legend | grep -q . && systemctl restart virtqemud.service || true
 """
-    alma_cmd = f"""
+        alma_cmd = f"""
 set -euo pipefail
 curl -fsSL {q(url + '/keys/subvirt.asc')} -o /etc/pki/rpm-gpg/RPM-GPG-KEY-subvirt
 cat >/etc/yum.repos.d/subvirt-lab.repo <<'EOF'
@@ -580,20 +854,34 @@ gpgcheck=1
 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-subvirt
 EOF
 dnf upgrade -y
-dnf install -y truenas-libvirt-provider libvirt-daemon-kvm libvirt-daemon-driver-storage-truenas virt-manager virt-manager-common virt-install iscsi-initiator-utils nvme-cli kmod
+dnf install -y truenas-libvirt-provider libvirt-daemon-kvm libvirt-daemon-driver-storage-truenas virt-manager virt-manager-common virt-install iscsi-initiator-utils nvme-cli qemu-img kmod
 modprobe nvme-tcp
+
+systemctl daemon-reload
+for unit in virtqemud.socket virtstoraged.socket virtproxyd.socket virtlogd.socket virtlockd.socket; do
+  systemctl list-unit-files "$unit" --no-legend | grep -q . && systemctl enable --now "$unit" || true
+done
+for unit in virtstoraged.service libvirtd.service; do
+  systemctl list-unit-files "$unit" --no-legend | grep -q . && {{ systemctl restart "$unit"; break; }}
+done
+systemctl list-unit-files virtqemud.service --no-legend | grep -q . && systemctl restart virtqemud.service || true
 """
-    if "ubuntu" in distros:
-        ssh(f"root@{ubuntu}", ubuntu_cmd, lab)
-    if "alma" in distros:
-        ssh(f"root@{alma}", alma_cmd, lab)
+    for key in vm_keys:
+        host = lab.config["vms"][key]["management_ip"]
+        distro = vm_distro(lab, key)
+        if distro == "ubuntu":
+            ssh(f"root@{host}", ubuntu_cmd, lab)
+        elif distro == "alma":
+            ssh(f"root@{host}", alma_cmd, lab)
+        else:
+            raise SystemExit(f"unsupported Linux VM distro {distro!r} for {key}")
 
 
-def configure_provider_configs(lab: Lab, distros: Iterable[str] | None = None) -> None:
+def configure_provider_configs(lab: Lab, vm_keys: Iterable[str] | None = None) -> None:
     api_key = lab.config.get("truenas", {}).get("api_key")
     if not api_key:
         raise SystemExit("truenas.api_key is required after TrueNAS install/configuration; run configure-truenas or set it in local lab config")
-    distros = list(distros or published_distros(lab))
+    vm_keys = list(vm_keys or linux_vm_keys(lab, published_distros(lab)))
     t = lab.config["truenas"]
     config = {
         "truenas": {
@@ -606,7 +894,7 @@ def configure_provider_configs(lab: Lab, distros: Iterable[str] | None = None) -
         "namespace": {"dataset": t.get("dataset", "libvirt")},
     }
     payload = json.dumps(config, indent=2)
-    for key in distros:
+    for key in vm_keys:
         host = lab.config["vms"][key]["management_ip"]
         command = f"""
 set -euo pipefail
@@ -626,19 +914,20 @@ systemctl restart truenas-libvirt-provider.service
         ssh(f"root@{host}", command, lab)
 
 
-def test_repo(lab: Lab) -> None:
+def test_repo(lab: Lab, mode: str) -> None:
     distros = published_distros(lab)
-    wait_for_linux_vms(lab, distros)
-    configure_linux_repos(lab, distros)
+    vm_keys = linux_vm_keys(lab, distros)
+    wait_for_linux_vms(lab, vm_keys)
+    configure_linux_repos(lab, vm_keys, mode)
     api_key = lab.config.get("truenas", {}).get("api_key")
-    if api_key:
-        configure_provider_configs(lab, distros)
-    else:
-        print("truenas.api_key is not set; package-manager install test completed without provider/storage checks")
-    if api_key and {"ubuntu", "alma"}.issubset(set(distros)):
+    if not api_key:
+        raise SystemExit("truenas.api_key is required for lab candidate validation; set it in the local lab config")
+    doctor_truenas(lab)
+    configure_provider_configs(lab, vm_keys)
+    if {"ubuntu", "alma"}.issubset(set(distros)):
         run([str(ROOT / "scripts" / "release.py"), "test-staging", "--config", str(lab.run_dir / "release.json"), "--build-id", lab.build_id, "--execute"], lab.execute)
     else:
-        print(f"partial lab repo test completed for distros={distros}; storage gate requires ubuntu and alma artifacts plus truenas.api_key")
+        print(f"partial lab repo test completed for distros={distros}; storage gate requires ubuntu and alma artifacts")
 
 
 def configure_truenas(lab: Lab) -> None:
@@ -653,16 +942,23 @@ def write_run_release_config(lab: Lab) -> None:
     release = load_config(Path(lab.config["lab"].get("release_template", ROOT / "release" / "release.example.json")))
     release["hosts"]["build"] = socket.gethostname()
     release.setdefault("ssh", {})["identity_files"] = lab.config["lab"].get("ssh_identity_files", [])
+    release["ssh"]["known_hosts_file"] = str(lab.run_dir / "known_hosts")
     release["project"]["source_mode"] = "rsync"
     release["project"]["source_path"] = str(ROOT)
     release["project"].setdefault("rsync_excludes", [".git", "build", "dist", "provider-build", ".venv-vnc"])
     release["hosts"]["ubuntu_test"] = f"root@{lab.config['vms']['ubuntu']['management_ip']}"
     release["hosts"]["alma_test"] = f"root@{lab.config['vms']['alma']['management_ip']}"
+    release["hosts"]["migration_source"] = release["hosts"]["ubuntu_test"]
+    if "ubuntu_migration_peer" in lab.config["vms"]:
+        release["hosts"]["migration_target"] = f"root@{lab.config['vms']['ubuntu_migration_peer']['management_ip']}"
     release["tests"]["iscsi_pool"] = tests["iscsi_pool_name"]
     release["tests"]["nvmeof_pool"] = tests["nvmeof_pool_name"]
     release["tests"]["iscsi_pool_xml"] = str(lab.run_dir / "iscsi-pool.xml")
     release["tests"]["nvmeof_pool_xml"] = str(lab.run_dir / "nvmeof-pool.xml")
     release["tests"]["run_migration"] = bool(tests.get("run_migration", False))
+    for key in ("migration_domain", "migration_image_url", "migration_image_sha256", "migration_volume_size", "migration_machine"):
+        if key in tests:
+            release["tests"][key] = tests[key]
     if "min_pool_capacity_gib" in tests:
         release["tests"]["min_pool_capacity_gib"] = int(tests["min_pool_capacity_gib"])
     iscsi_pool = tests["iscsi_truenas_pool"]
@@ -697,7 +993,9 @@ def write_run_release_config(lab: Lab) -> None:
 
 def destroy_lab(lab: Lab) -> None:
     prefix = f"{lab.config['lab']['name_prefix']}-{lab.build_id}-"
-    for key in ("ubuntu", "alma", "truenas"):
+    for key in ("ubuntu", "alma", "ubuntu_migration_peer", "truenas"):
+        if key not in lab.config["vms"]:
+            continue
         name = prefix + lab.config["vms"][key]["name"]
         existing = virsh("list", "--all", lab=lab)
         if name in existing:
@@ -708,10 +1006,14 @@ def destroy_lab(lab: Lab) -> None:
             path.unlink(missing_ok=True)
         else:
             print(f"+ rm -f {path}")
-    for key in ("management", "storage"):
-        name = lab.config["networks"][key]["name"]
-        run_shell(f"virsh -c qemu:///system net-destroy {q(name)} || true", lab.execute)
-        run_shell(f"virsh -c qemu:///system net-undefine {q(name)} || true", lab.execute)
+    keep_networks = domain_state(lab, persistent_truenas_name(lab)) is not None
+    if keep_networks:
+        print(f"persistent TrueNAS VM {persistent_truenas_name(lab)} exists; keeping lab networks")
+    else:
+        for key in ("management", "storage"):
+            name = lab.config["networks"][key]["name"]
+            run_shell(f"virsh -c qemu:///system net-destroy {q(name)} || true", lab.execute)
+            run_shell(f"virsh -c qemu:///system net-undefine {q(name)} || true", lab.execute)
     if lab.execute and lab.run_dir.exists():
         shutil.rmtree(lab.run_dir)
     else:
@@ -720,10 +1022,11 @@ def destroy_lab(lab: Lab) -> None:
 
 def parse_args(argv: Iterable[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=["bootstrap-host", "create-linux", "create", "wait-linux", "publish-repo", "test-repo", "configure-truenas", "destroy"])
+    parser.add_argument("command", choices=["bootstrap-host", "create-linux", "create", "ensure-truenas", "wait-linux", "wait-truenas", "doctor-truenas", "publish-repo", "test-repo", "configure-truenas", "destroy"])
     parser.add_argument("--config", default="release/lab.example.json", type=Path)
     parser.add_argument("--build-id", default="manual")
     parser.add_argument("--artifacts", type=Path, help="artifact directory containing ubuntu/ and alma/ subdirectories")
+    parser.add_argument("--mode", choices=["full", "provider"], default="full", help="lab repo test mode")
     parser.add_argument("--execute", action="store_true")
     return parser.parse_args(list(argv))
 
@@ -737,13 +1040,19 @@ def main(argv: Iterable[str] = sys.argv[1:]) -> int:
         create_linux_lab(lab)
     elif args.command == "create":
         create_lab(lab)
+    elif args.command == "ensure-truenas":
+        ensure_persistent_truenas(lab)
     elif args.command == "wait-linux":
-        wait_for_linux_vms(lab, ("ubuntu", "alma"))
+        wait_for_linux_vms(lab, linux_vm_keys(lab, ["ubuntu", "alma"]))
+    elif args.command == "wait-truenas":
+        wait_truenas(lab)
+    elif args.command == "doctor-truenas":
+        doctor_truenas(lab)
     elif args.command == "publish-repo":
         artifacts = args.artifacts or Path(lab.config["lab"].get("artifact_root", "/srv/subvirt/artifacts")) / args.build_id
         publish_repo(lab, artifacts)
     elif args.command == "test-repo":
-        test_repo(lab)
+        test_repo(lab, args.mode)
     elif args.command == "configure-truenas":
         configure_truenas(lab)
     elif args.command == "destroy":

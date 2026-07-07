@@ -29,6 +29,21 @@ The durable source inputs are:
 
 Generated paths such as `build/`, `sources/`, `dist/`, `provider-build/`, `work-clean/`, and `work-patchgen/` are intentionally ignored.
 
+
+## Version Manifest
+
+`release/subvirt-version.json` is the committed version source of truth. It tracks the Subvirt project version, the independent `truenas-libvirt-provider` package version/release, and the local `truenasN` package revision used for each distro libvirt and virt-manager rebuild.
+
+Use `scripts/bump-version.py` for intentional feature/version changes. Typical examples:
+
+```sh
+./scripts/bump-version.py --subvirt-version 0.3.0 --provider-version 0.3.0 --provider-release 1
+./scripts/bump-version.py --provider-release 2
+./scripts/bump-version.py --ubuntu-virt-manager-revision 2 --alma-virt-manager-revision 2
+```
+
+When the upstream libvirt checker detects a new parent package, `scripts/update-upstream-lock.py` resets only the affected distro libvirt local revision to `1`. Provider and virt-manager versions are not changed by upstream libvirt polling. If a Subvirt patch needs another rebuild against the same parent package, bump that distro's libvirt local revision explicitly.
+
 ## Upstream Tracking
 
 `scripts/check-upstream.py` compares the current mirror metadata against `release/upstream-lock.json`. GitHub Actions runs this check every 8 hours, matching the local mirror sync cadence. The script exits with code `10` when a newer libvirt package is available and writes a JSON report suitable for workflow artifacts.
@@ -37,7 +52,7 @@ Generated paths such as `build/`, `sources/`, `dist/`, `provider-build/`, `work-
 
 `scripts/write-upstream-manifest.py` records the durable refresh proof in `release/upstream-manifests/`. These manifests are committed with the lock update and include the upstream source file checksums, tracked patch checksums, generated local version, and a small generated-output check. Generated source trees, downloaded source packages, binary packages, and repo metadata are still not committed.
 
-When the upstream check workflow detects a newer parent package, it refreshes generated source inputs, writes manifests, and opens or updates `automation/upstream-libvirt-refresh`. The candidate build runs from that PR branch. If the candidate build and ephemeral lab test pass, the workflow comments with the evidence URL. Scheduled runs finalize automatically by publishing the tested build to the public stable repository, verifying the public HTTPS metadata and package URLs, and then merging the PR. Manual `workflow_dispatch` runs default to `finalize=false`, which exercises the production path but skips public publishing and merging; set `finalize=true` only when you want the manual run to publish stable. If refresh, build, test, public publish, or verification fails, the PR is not merged.
+When the upstream check workflow detects a newer parent package, it refreshes generated source inputs, writes manifests, and opens or updates `automation/upstream-libvirt-refresh`. The candidate build runs from that PR branch. If the candidate build and ephemeral lab test pass, the workflow comments with the evidence URL. Scheduled runs finalize automatically by running the deterministic release-evidence gate, publishing the tested build to the public stable repository, verifying the public HTTPS metadata and package URLs, and then merging the PR. Manual `workflow_dispatch` runs default to `finalize=false`, which exercises the production path but skips public publishing and merging; set `finalize=true` only when you want the manual run to publish stable. If refresh, build, evidence validation, test, public publish, or verification fails, the PR is not merged.
 
 ## Commands
 
@@ -65,11 +80,26 @@ Run individual phases:
 ./scripts/release.py verify-public-stable --config release/release.json --build-id 0.1.0-1 --execute
 ```
 
+Validate release evidence before public promotion:
+
+```sh
+./scripts/verify-release-evidence.py --build-id 0.1.0-1 --scope auto
+```
+
 Use `--test-id` to rerun storage tests against the same artifact directory without reusing volume names:
 
 ```sh
 ./scripts/release.py test-artifacts --config release/release.json --build-id 0.1.0-1 --test-id 0.1.0-1-rerun1 --execute
 ```
+
+
+Run a provider-only release candidate when only `truenas-libvirt-provider` changed:
+
+```sh
+BUILD_ID=0.2.1-provider-1 BUILD_SCOPE=provider PROMOTE_STABLE=false ./scripts/run-candidate-release.sh
+```
+
+Provider-only candidates build the Ubuntu and Alma provider packages, create fresh ephemeral lab VMs, install patched libvirt and virt-manager from the current stable repo, install the staged provider package from the per-run lab repo, and run the same TrueNAS storage gate, including the Ubuntu-to-Ubuntu live-migration smoke gate when enabled in the lab config. Provider-only candidates require `lab.enabled=true` and `truenas.api_key` in the local lab config. Each candidate writes `artifacts/<build-id>/candidate-release.log` and must pass `scripts/verify-release-evidence.py` before stable publishing. Set `PROMOTE_STABLE=true` only when that provider build should be published to the public stable repository; Codex review is advisory by default and becomes blocking only with `REQUIRE_CODEX_GATE=true`.
 
 ## Build Helpers
 
@@ -90,6 +120,8 @@ Then they run the existing package helpers inside the matching distro container:
 - Ubuntu: `scripts/build-provider-deb.sh`, `scripts/build-libvirt-deb.sh`, and `scripts/build-virt-manager-deb.sh`
 - AlmaLinux: `scripts/build-provider-rpm.sh`, `scripts/build-libvirt-rpm.sh`, and `scripts/build-virt-manager-rpm.sh`
 
+Provider-only candidates use `scripts/container-build-provider-ubuntu.sh` and `scripts/container-build-provider-alma.sh`, which run only the provider package helpers inside the same distro containers.
+
 The current container mode uses native package builds inside the pinned distro images. This is intentional for the prototype release pipeline. If stricter distro-policy isolation becomes necessary, the wrapper scripts can later grow `sbuild` or `mock` modes without changing the outer release flow.
 
 Bootstrap the build host:
@@ -104,7 +136,7 @@ The bootstrap installs Podman and baseline host tools. Build dependencies belong
 
 ## Direct Artifact Test
 
-`test-artifacts` installs packages directly from the build VM artifact directory onto the two test VMs before anything is published. It copies packages from `/srv/subvirt/artifacts/<build-id>/ubuntu` and `/srv/subvirt/artifacts/<build-id>/alma` into `/tmp/subvirt-artifacts/<test-id>/...` on each test host, installs them with apt/dnf, restarts the provider and libvirt storage daemon, checks `health.check`, verifies the `truenas` storage backend is visible in `virsh pool-capabilities`, verifies patched virt-manager reports `truenas` pools as volume-creation capable, then runs the storage gate.
+`test-artifacts` installs packages directly from the build VM artifact directory onto the two test VMs before anything is published. It copies packages from `/srv/subvirt/artifacts/<build-id>/ubuntu` and `/srv/subvirt/artifacts/<build-id>/alma` into `/tmp/subvirt-artifacts/<test-id>/...` on each test host, installs them with apt/dnf, restarts the provider and libvirt storage daemon, runs `doctor --json`, verifies the `truenas` storage backend is visible in `virsh pool-capabilities`, verifies patched virt-manager reports `truenas` pools as volume-creation capable, then runs the storage gate.
 
 This is the fast confidence gate for the lab workflow. Staging repo tests still matter later because they verify package-manager repo behavior, signing, and dependency resolution from published metadata.
 
@@ -169,14 +201,17 @@ There is no expected webhook-style event from Ubuntu or AlmaLinux for new libvir
 - `truenas` pool support appears in libvirt.
 - iSCSI and NVMe-oF pools define/start/refresh.
 - Pool capacity reports managed-dataset space, not summed zvol sizes.
-- Ubuntu creates an iSCSI test volume.
-- AlmaLinux creates an NVMe-oF test volume.
-- Each host refreshes and sees the other host's volume.
-- A configured throwaway VM live-migrates to the peer host when `tests.run_migration` is true.
+- Ubuntu creates, resizes, clones, and delete-validates an iSCSI test volume.
+- AlmaLinux creates, resizes, clones, and delete-validates an NVMe-oF test volume.
+- Each host refreshes and sees the other host's source and clone volumes before cleanup.
+- Source volume deletion fails without `--delete-snapshots` and succeeds with it after the clone is removed.
+- A disposable iSCSI-backed guest is created on the configured migration source and live-migrated to the configured migration target when `tests.run_migration` is true. The ephemeral lab default is Ubuntu-to-Ubuntu.
 
-The test script creates unique volume names containing the test ID. By default the test ID is the build ID, but `--test-id` can override it when rerunning tests against the same artifact directory. Cleanup is intentionally not required until TrueNAS dataset deletion is available to the API user.
+The test script creates unique volume names containing the test ID. By default the test ID is the build ID, but `--test-id` can override it when rerunning tests against the same artifact directory. Successful full storage gates clean up their test volumes; failed runs leave volumes behind for inspection.
 
-Set `tests.run_migration` to `true` once `tests.migration_domain` names a throwaway VM that exists on the Ubuntu test host and can live-migrate to the AlmaLinux test host.
+Set `tests.run_migration` to `true` to enable the live-migration smoke gate. The gate downloads the configured `tests.migration_image_url`, writes it into a temporary Subvirt iSCSI volume sized by `tests.migration_volume_size`, defines `tests.migration_domain` on `hosts.migration_source`, live-migrates it to `hosts.migration_target` over `qemu+ssh`, verifies it is running on the destination, and then removes the guest and volume. Migration requires `ssh.identity_files`; the release harness copies the first configured identity and run-local known_hosts file into each storage or migration host. If migration hosts are not configured, the release harness falls back to the storage test pair.
+
+The smoke VM uses `tests.migration_machine`, which defaults to `auto`. Auto mode selects a concrete QEMU machine type that both hypervisors advertise and rejects unsafe distro aliases such as `pc` and `q35`. If no common concrete machine type exists, the gate fails before provisioning the temporary volume. This is expected for mixed Ubuntu/AlmaLinux live migration because their QEMU packages expose different machine-type families; production migration clusters should use a compatible hypervisor OS/QEMU baseline. The lab config includes `vms.ubuntu_migration_peer` so the default migration proof uses a compatible Ubuntu-to-Ubuntu pair while the regular storage matrix still covers Ubuntu and AlmaLinux.
 
 ## Current Implementation Notes
 

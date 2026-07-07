@@ -6,6 +6,15 @@ on:
       build_id:
         description: Existing tested build ID to publish to public stable
         required: true
+      scope:
+        description: Candidate scope: auto, provider, or full
+        required: false
+        default: auto
+      require_codex_gate:
+        description: Require Codex review to pass before stable publish
+        required: false
+        default: false
+        type: boolean
 
 env:
   SUBVIRT_RELEASE_CONFIG: ${{ vars.SUBVIRT_RELEASE_CONFIG || '/srv/subvirt/release/release.json' }}
@@ -18,7 +27,10 @@ jobs:
       - uses: actions/checkout@v7.0.0
       - name: Write release evidence
         run: ./scripts/write-release-evidence.py --build-id "${{ inputs.build_id }}"
+      - name: Deterministic promotion gate
+        run: ./scripts/verify-release-evidence.py --build-id "${{ inputs.build_id }}" --scope "${{ inputs.scope }}"
       - name: Codex promotion gate
+        continue-on-error: ${{ !inputs.require_codex_gate }}
         run: ./scripts/codex-release-gate.sh "${{ inputs.build_id }}"
       - name: Publish public stable
         run: ./scripts/release.py publish-public-stable --config "$SUBVIRT_RELEASE_CONFIG" --build-id "${{ inputs.build_id }}" --execute

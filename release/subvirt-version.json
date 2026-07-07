@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "subvirt_version": "0.2.0",
+  "provider": {
+    "version": "0.2.0",
+    "release": 4
+  },
+  "ubuntu_24_04": {
+    "libvirt": {
+      "local_revision": 1
+    },
+    "virt_manager": {
+      "local_revision": 1
+    }
+  },
+  "almalinux_10": {
+    "libvirt": {
+      "local_revision": 1
+    },
+    "virt_manager": {
+      "local_revision": 1
+    }
+  }
+}

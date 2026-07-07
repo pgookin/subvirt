@@ -42,7 +42,15 @@ Create only the Ubuntu and AlmaLinux VMs while debugging cloud-init, networking,
 ./scripts/lab.py wait-linux --config /srv/subvirt/release/lab.json --build-id <build-id> --execute
 ```
 
-Create the full lab for an existing build ID, including TrueNAS:
+Create or start the persistent TrueNAS lab VM. This VM is installed once and reused across candidate runs:
+
+```sh
+./scripts/lab.py ensure-truenas --config /srv/subvirt/release/lab.json --build-id truenas-lab --execute
+./scripts/lab.py wait-truenas --config /srv/subvirt/release/lab.json --build-id truenas-lab --execute
+./scripts/lab.py doctor-truenas --config /srv/subvirt/release/lab.json --build-id truenas-lab --execute
+```
+
+Create the full per-run lab, including a disposable TrueNAS VM, only when explicitly testing that older path:
 
 ```sh
 ./scripts/lab.py create --config /srv/subvirt/release/lab.json --build-id <build-id> --execute
@@ -77,12 +85,12 @@ To make release validation use the ephemeral lab, set this in the local release 
 }
 ```
 
-With `full: false`, candidate workflows create fresh Ubuntu and AlmaLinux VMs, publish a per-run repo, install the candidate packages through apt/dnf, and validate the provider service plus virt-manager integration. Set `full: true` after the TrueNAS golden-image/API setup is ready; that path also creates the TrueNAS VM and runs the storage gate.
+With `full: false`, candidate workflows create fresh Ubuntu and AlmaLinux VMs, publish a per-run repo, install the candidate packages through apt/dnf, and run the storage gate against the persistent TrueNAS lab VM. Keep `full: false` for normal release validation. The older `full: true` path creates a disposable TrueNAS VM and is reserved for testing TrueNAS install automation.
 
 On success the lab is destroyed automatically. On failure the VMs, disks, and per-run repo are preserved and the cleanup command is printed.
 
 ## TrueNAS install flow
 
-The first implementation supports both ISO and golden-image paths. ISO mode creates the VM and boots the configured ISO. Because TrueNAS installer automation can vary by release, the appliance setup is finished by a configured `truenas.post_install_script`. That script is responsible for setting credentials, configuring management/storage addresses, creating ZFS pools, enabling iSCSI/NVMe-oF services, and creating the API key used by `truenas-libvirt-provider`.
+The normal release gate uses a persistent TrueNAS VM installed once on the build host. `ensure-truenas` creates the VM and boots the configured ISO; finish the installer through the VM console, configure the fixed management/storage IPs, create the configured test pools, and store the API key only in `/srv/subvirt/release/lab.json`. `doctor-truenas` verifies API login and required test pools before candidate storage tests run.
 
-Once ISO automation is stable for a TrueNAS release, create a golden image and set `vms.truenas.install_mode` to `golden` for faster, fully unattended CI runs while still deriving the image from the tested ISO.
+The disposable ISO/golden-image path remains available for future install-automation work, but it is not the normal candidate path.

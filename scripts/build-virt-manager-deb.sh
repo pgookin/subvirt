@@ -43,7 +43,9 @@ mk-build-deps -i -r -t "apt-get -y --no-install-recommends" "$SRC_DIR/debian/con
 (
   cd "$SRC_DIR"
   "$ROOT/scripts/patch-virt-manager-truenas.py" .
-  dch --local +truenas --distribution "$DIST" --force-distribution \
+  BASE_VERSION=$(dpkg-parsechangelog -S Version)
+  LOCAL_REVISION=$("$ROOT/scripts/subvirt_versions.py" ubuntu-virt-manager-revision)
+  dch --newversion "${BASE_VERSION}+truenas${LOCAL_REVISION}" --distribution "$DIST" --force-distribution \
     "Enable TrueNAS storage pool volume creation in virt-manager."
   "$ROOT/scripts/check-virt-manager-truenas.py" --static --source-root .
   dpkg-buildpackage -us -uc -b

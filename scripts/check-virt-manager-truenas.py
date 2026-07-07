@@ -73,8 +73,8 @@ def dynamic_checks(source_root: Path) -> list[tuple[bool, str]]:
     return [
         (vmmStoragePool.supports_volume_creation("truenas") is True,
          "truenas pools must support volume creation"),
-        (vmmStoragePool.supports_volume_creation("truenas", clone=True) is False,
-         "truenas pools must not advertise clone support"),
+        (vmmStoragePool.supports_volume_creation("truenas", clone=True) is True,
+         "truenas pools must advertise clone support"),
         (vmmStoragePool.pretty_type("truenas") == "TrueNAS managed storage",
          "truenas pools must have a friendly label"),
         (pool.supports_source_name() is True,

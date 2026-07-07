@@ -23,5 +23,5 @@ Evidence directory: $EVIDENCE_DIR
 Review the available files recursively, especially package manifests, build logs, install logs, storage test logs, staging repo tests, and upstream version reports. Do not modify files.
 PROMPT
 
-codex exec --cd . --sandbox read-only --ask-for-approval never "$(cat "$REPORT.prompt")" >"$REPORT"
+codex exec --cd . --sandbox read-only "$(cat "$REPORT.prompt")" >"$REPORT"
 head -n 1 "$REPORT" | grep -qx 'PROMOTE_OK'

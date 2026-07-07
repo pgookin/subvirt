@@ -36,6 +36,7 @@
     "apt_suite": "noble",
     "component": "staging",
     "yum_distro_path": "almalinux/10",
+    "stable_base_url": "https://repo.subvirt.net",
     "gpg_name": "Subvirt Lab Repository <lab@subvirt.local>"
   },
   "vms": {
@@ -50,6 +51,18 @@
       "memory_mib": 4096,
       "vcpus": 4
     },
+    "ubuntu_migration_peer": {
+      "name": "u24-migration-peer",
+      "image_url": "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img",
+      "image_sha256": "",
+      "os_variant": "ubuntu24.04",
+      "management_ip": "192.168.150.13",
+      "storage_ip": "192.168.151.13",
+      "disk_size": "40G",
+      "memory_mib": 4096,
+      "vcpus": 4,
+      "distro": "ubuntu"
+    },
     "alma": {
       "name": "al10",
       "image_url": "https://repo.almalinux.org/almalinux/10/cloud/x86_64/images/AlmaLinux-10-GenericCloud-latest.x86_64.qcow2",
@@ -63,6 +76,14 @@
     },
     "truenas": {
       "name": "truenas",
+      "persistent_name": "subvirt-lab-truenas",
+      "persistent_boot_disk": "/srv/subvirt/lab/images/truenas-lab-boot.qcow2",
+      "persistent_data_disks": [
+        "/srv/subvirt/lab/images/truenas-lab-data1.qcow2",
+        "/srv/subvirt/lab/images/truenas-lab-data2.qcow2",
+        "/srv/subvirt/lab/images/truenas-lab-data3.qcow2",
+        "/srv/subvirt/lab/images/truenas-lab-data4.qcow2"
+      ],
       "install_mode": "iso",
       "installer_automation": "external",
       "iso_url": "https://download.sys.truenas.net/TrueNAS-SCALE-Goldeye/25.10.4/TrueNAS-SCALE-25.10.4.iso",
@@ -96,6 +117,12 @@
     "iscsi_pool_name": "truenas-iscsi",
     "nvmeof_pool_name": "truenas-nvmeof",
     "target_path": "/dev/disk/by-id",
-    "run_migration": false
+    "migration_domain": "subvirt-migration-smoke",
+    "migration_image_url": "https://download.cirros-cloud.net/0.6.2/cirros-0.6.2-x86_64-disk.img",
+    "migration_image_sha256": "",
+    "migration_volume_size": "512M",
+    "migration_machine": "auto",
+    "run_migration": false,
+    "min_pool_capacity_gib": 50
   }
 }

@@ -10,6 +10,16 @@ ALMA_VERSION=${ALMA_VERSION:-}
 PROMOTE_STABLE=${PROMOTE_STABLE:-false}
 BUILD_UBUNTU=${BUILD_UBUNTU:-true}
 BUILD_ALMA=${BUILD_ALMA:-true}
+BUILD_SCOPE=${BUILD_SCOPE:-full}
+REQUIRE_CODEX_GATE=${REQUIRE_CODEX_GATE:-false}
+
+CANDIDATE_LOG_DIR=${CANDIDATE_LOG_DIR:-artifacts/$BUILD_ID}
+CANDIDATE_LOG_FILE=${CANDIDATE_LOG_FILE:-$CANDIDATE_LOG_DIR/candidate-release.log}
+if [[ "${SUBVIRT_CANDIDATE_LOGGING:-true}" == "true" ]]; then
+  mkdir -p "$CANDIDATE_LOG_DIR"
+  exec > >(tee -a "$CANDIDATE_LOG_FILE") 2>&1
+  echo "Candidate release log: $CANDIDATE_LOG_FILE"
+fi
 
 summary() {
   if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
@@ -26,6 +36,8 @@ summary "- Alma version: \`${ALMA_VERSION:-not set}\`"
 summary "- Promote stable: \`$PROMOTE_STABLE\`"
 summary "- Build Ubuntu: \`$BUILD_UBUNTU\`"
 summary "- Build Alma: \`$BUILD_ALMA\`"
+summary "- Build scope: \`$BUILD_SCOPE\`"
+summary "- Require Codex gate: \`$REQUIRE_CODEX_GATE\`"
 
 remote_quote() {
   python3 -c 'import shlex, sys; print(shlex.quote(sys.argv[1]))' "$1"
@@ -52,8 +64,21 @@ local_host_matches() {
   python3 -c 'import socket, sys; host=sys.argv[1]; print("yes" if host in {"localhost", "127.0.0.1", "::1", socket.gethostname(), socket.getfqdn()} else "no")' "$1"
 }
 
-if [[ "$BUILD_UBUNTU" != "true" && "$BUILD_ALMA" != "true" ]]; then
+case "$BUILD_SCOPE" in
+  full|provider) ;;
+  *)
+    echo "BUILD_SCOPE must be full or provider" >&2
+    exit 1
+    ;;
+esac
+
+if [[ "$BUILD_SCOPE" == "full" && "$BUILD_UBUNTU" != "true" && "$BUILD_ALMA" != "true" ]]; then
   echo "At least one of BUILD_UBUNTU or BUILD_ALMA must be true" >&2
+  exit 1
+fi
+
+if [[ "$BUILD_SCOPE" == "provider" && "$REFRESH_SOURCES" == "true" ]]; then
+  echo "Provider-only candidate builds cannot refresh libvirt sources" >&2
   exit 1
 fi
 
@@ -88,7 +113,16 @@ if [[ "$REFRESH_SOURCES" == "true" ]]; then
   fi
 fi
 
-if [[ "$BUILD_UBUNTU" == "true" && "$BUILD_ALMA" == "true" ]]; then
+if [[ "$BUILD_SCOPE" == "provider" ]]; then
+  ./scripts/release.py build-provider --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
+  ./scripts/release.py collect --config "$CONFIG" --build-id "$BUILD_ID" --execute
+  if [[ "$LAB_ENABLED" != "true" ]]; then
+    echo "Provider-only candidates require lab.enabled=true so fresh VMs can test the staged provider against stable libvirt packages" >&2
+    exit 1
+  fi
+  ./scripts/release.py test-lab --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --lab-mode provider --execute
+  summary "Provider-only candidate tested in ephemeral lab with stable libvirt packages and staged provider packages."
+elif [[ "$BUILD_UBUNTU" == "true" && "$BUILD_ALMA" == "true" ]]; then
   ./scripts/release.py build --config "$CONFIG" --ref "$REF" --build-id "$BUILD_ID" --execute
   ./scripts/release.py collect --config "$CONFIG" --build-id "$BUILD_ID" --execute
   if [[ "$LAB_ENABLED" == "true" ]]; then
@@ -125,9 +159,14 @@ else
 fi
 
 ./scripts/write-release-evidence.py --build-id "$BUILD_ID"
+./scripts/verify-release-evidence.py --build-id "$BUILD_ID" --scope "$BUILD_SCOPE"
 
 if [[ "$PROMOTE_STABLE" == "true" ]]; then
-  ./scripts/codex-release-gate.sh "$BUILD_ID"
+  if [[ "$REQUIRE_CODEX_GATE" == "true" ]]; then
+    ./scripts/codex-release-gate.sh "$BUILD_ID"
+  else
+    ./scripts/codex-release-gate.sh "$BUILD_ID" || echo "Codex promotion review did not pass; continuing because REQUIRE_CODEX_GATE=false"
+  fi
   ./scripts/release.py publish-public-stable --config "$CONFIG" --build-id "$BUILD_ID" --execute
   ./scripts/release.py verify-public-stable --config "$CONFIG" --build-id "$BUILD_ID" --execute
 fi

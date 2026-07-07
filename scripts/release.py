@@ -27,6 +27,7 @@ class Context:
     ref: str
     build_id: str
     test_id_override: str | None = None
+    lab_mode: str = "full"
 
 
 def q(value: str) -> str:
@@ -62,7 +63,12 @@ def ssh_identity_args(config: dict) -> list[str]:
 
 
 def ssh_args(config: dict) -> list[str]:
-    return ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", *ssh_identity_args(config)]
+    args = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new"]
+    known_hosts = config.get("ssh", {}).get("known_hosts_file")
+    if known_hosts:
+        args.extend(["-o", f"UserKnownHostsFile={Path(known_hosts).expanduser()}"])
+    args.extend(ssh_identity_args(config))
+    return args
 
 
 def remote(host: str, command: str, ctx_or_execute) -> None:
@@ -203,6 +209,41 @@ def build_alma(ctx: Context) -> None:
     remote(host, command, ctx)
 
 
+def build_ubuntu_provider(ctx: Context) -> None:
+    host = hosts(ctx)["build"]
+    p = project(ctx)
+    workdir = p["workdir"]
+    out_dir = artifact_dir(ctx, "ubuntu")
+    remote_checkout(ctx, host)
+    command = " && ".join([
+        f"install -d -m 0755 {q(out_dir)}",
+        f"cd {q(workdir)}",
+        "./scripts/container-build-provider-ubuntu.sh",
+        f"find dist -maxdepth 1 -type f -name 'truenas-libvirt-provider_*.deb' -exec cp -a {{}} {q(out_dir)}/ \\;",
+    ])
+    remote(host, command, ctx)
+
+
+def build_alma_provider(ctx: Context) -> None:
+    host = hosts(ctx)["build"]
+    p = project(ctx)
+    workdir = p["workdir"]
+    out_dir = artifact_dir(ctx, "alma")
+    remote_checkout(ctx, host)
+    command = " && ".join([
+        f"install -d -m 0755 {q(out_dir)}",
+        f"cd {q(workdir)}",
+        "./scripts/container-build-provider-alma.sh",
+        f"find dist -maxdepth 1 -type f -name 'truenas-libvirt-provider-*.rpm' -exec cp -a {{}} {q(out_dir)}/ \\;",
+    ])
+    remote(host, command, ctx)
+
+
+def build_provider(ctx: Context) -> None:
+    build_ubuntu_provider(ctx)
+    build_alma_provider(ctx)
+
+
 def collect_artifact(ctx: Context, distro: str) -> None:
     p = project(ctx)
     local = Path("artifacts") / ctx.build_id
@@ -336,6 +377,10 @@ def verify_public_stable(ctx: Context) -> None:
     for url in urls:
         check_url(url, ctx.execute)
 
+MIGRATION_SSH_IDENTITY_REMOTE = "/root/.ssh/subvirt_migration_key"
+MIGRATION_SSH_KNOWN_HOSTS_REMOTE = "/root/.ssh/subvirt_known_hosts"
+
+
 def storage_base_args(ctx: Context) -> str:
     t = tests(ctx)
     args = "--build-id {build_id} --iscsi-pool {iscsi_pool} --nvmeof-pool {nvmeof_pool} --iscsi-pool-xml {iscsi_xml} --nvmeof-pool-xml {nvmeof_xml} --migration-domain {domain}".format(
@@ -346,6 +391,18 @@ def storage_base_args(ctx: Context) -> str:
         nvmeof_xml=q(t["nvmeof_pool_xml"]),
         domain=q(t["migration_domain"]),
     )
+    if "migration_image_url" in t:
+        args += f" --migration-image-url {q(t['migration_image_url'])}"
+    if "migration_image_sha256" in t:
+        args += f" --migration-image-sha256 {q(t['migration_image_sha256'])}"
+    if "migration_volume_size" in t:
+        args += f" --migration-volume-size {q(t['migration_volume_size'])}"
+    if "migration_machine" in t:
+        args += f" --migration-machine {q(t['migration_machine'])}"
+    if ctx.config.get("ssh", {}).get("identity_files"):
+        args += f" --ssh-identity-file {q(MIGRATION_SSH_IDENTITY_REMOTE)}"
+    if ctx.config.get("ssh", {}).get("known_hosts_file"):
+        args += f" --ssh-known-hosts-file {q(MIGRATION_SSH_KNOWN_HOSTS_REMOTE)}"
     if "min_pool_capacity_gib" in t:
         args += f" --min-pool-capacity-gib {int(t['min_pool_capacity_gib'])}"
     return args
@@ -359,13 +416,37 @@ def sync_storage_pool_xml(ctx: Context, host: str) -> None:
         rsync_to(path, host, path, ctx)
 
 
+def sync_migration_ssh_material(ctx: Context, host: str) -> None:
+    ssh = ctx.config.get("ssh", {})
+    identity_files = ssh.get("identity_files") or []
+    if not identity_files:
+        if tests(ctx).get("run_migration", False):
+            raise SystemExit("tests.run_migration requires ssh.identity_files so the source guest can reach the destination guest")
+        return
+    identity = str(identity_files[0])
+    known_hosts = ssh.get("known_hosts_file")
+    remote(host, "install -d -m 0700 /root/.ssh", ctx)
+    rsync_to(identity, host, MIGRATION_SSH_IDENTITY_REMOTE, ctx)
+    remote(host, f"chmod 0600 {q(MIGRATION_SSH_IDENTITY_REMOTE)}", ctx)
+    if known_hosts:
+        rsync_to(str(known_hosts), host, MIGRATION_SSH_KNOWN_HOSTS_REMOTE, ctx)
+        remote(host, f"chmod 0644 {q(MIGRATION_SSH_KNOWN_HOSTS_REMOTE)}", ctx)
+
+
 def run_storage_gate(ctx: Context) -> None:
     p = project(ctx)
     ubuntu = hosts(ctx)["ubuntu_test"]
     alma = hosts(ctx)["alma_test"]
-    for host in (ubuntu, alma):
+    migration_source = hosts(ctx).get("migration_source", ubuntu)
+    migration_target = hosts(ctx).get("migration_target", alma)
+    run_migration = tests(ctx).get("run_migration", bool(tests(ctx).get("migration_domain")))
+    setup_hosts = [ubuntu, alma]
+    if run_migration:
+        setup_hosts.extend([migration_source, migration_target])
+    for host in dict.fromkeys(setup_hosts):
         remote_checkout(ctx, host)
         sync_storage_pool_xml(ctx, host)
+        sync_migration_ssh_material(ctx, host)
     base = storage_base_args(ctx)
     ubuntu_create = " && ".join([
         f"cd {q(p['workdir'])}",
@@ -383,16 +464,26 @@ def run_storage_gate(ctx: Context) -> None:
         f"cd {q(p['workdir'])}",
         f"./scripts/test-storage.py --action check-peer --role alma --peer {q(ubuntu)} {base}",
     ])
+    ubuntu_delete_check = " && ".join([
+        f"cd {q(p['workdir'])}",
+        f"./scripts/test-storage.py --action delete-check --role ubuntu --peer {q(alma)} {base}",
+    ])
+    alma_delete_check = " && ".join([
+        f"cd {q(p['workdir'])}",
+        f"./scripts/test-storage.py --action delete-check --role alma --peer {q(ubuntu)} {base}",
+    ])
     migration = " && ".join([
         f"cd {q(p['workdir'])}",
-        f"./scripts/test-storage.py --action migrate --role ubuntu --peer {q(alma)} {base}",
+        f"./scripts/test-storage.py --action migrate --role ubuntu --peer {q(migration_target)} {base}",
     ])
     remote(ubuntu, ubuntu_create, ctx)
     remote(alma, alma_create, ctx)
     remote(ubuntu, ubuntu_check, ctx)
     remote(alma, alma_check, ctx)
-    if tests(ctx).get("run_migration", bool(tests(ctx).get("migration_domain"))):
-        remote(ubuntu, migration, ctx)
+    remote(ubuntu, ubuntu_delete_check, ctx)
+    remote(alma, alma_delete_check, ctx)
+    if run_migration:
+        remote(migration_source, migration, ctx)
 
 
 
@@ -416,7 +507,7 @@ def test_ephemeral_lab(ctx: Context) -> None:
         "set +e",
         f"./scripts/lab.py {create_command} --config {q(config_path)} --build-id {q(ctx.build_id)} --execute && "
         f"./scripts/lab.py publish-repo --config {q(config_path)} --build-id {q(ctx.build_id)} --artifacts {q(artifacts)} --execute && "
-        f"./scripts/lab.py test-repo --config {q(config_path)} --build-id {q(ctx.build_id)} --execute",
+        f"./scripts/lab.py test-repo --config {q(config_path)} --build-id {q(ctx.build_id)} --mode {q(ctx.lab_mode)} --execute",
         "rc=$?",
         f"if test $rc -eq 0; then ./scripts/lab.py destroy --config {q(config_path)} --build-id {q(ctx.build_id)} --execute; "
         f"else echo 'Ephemeral lab preserved for failed build {ctx.build_id}. Cleanup with: ./scripts/lab.py destroy --config {q(config_path)} --build-id {q(ctx.build_id)} --execute' >&2; fi",
@@ -436,16 +527,23 @@ def artifact_stage_dir(ctx: Context, distro: str) -> str:
     return f"/tmp/subvirt-artifacts/{test_id(ctx)}/{distro}"
 
 
+def scp_args(config: dict) -> list[str]:
+    return ["scp", *ssh_args(config)[1:]]
+
+
 def copy_artifacts_to_test_host(ctx: Context, distro: str, target: str, pattern: str) -> None:
     build_host = hosts(ctx)["build"]
     stage_dir = artifact_stage_dir(ctx, distro)
     remote(target, f"install -d -m 0755 {q(stage_dir)}", ctx)
     if is_local_host(build_host):
-        command = f"scp {q(artifact_dir(ctx, distro))}/{pattern} {q(f'{target}:{stage_dir}/')}"
-        run(["bash", "-lc", command], ctx)
+        run([
+            *scp_args(ctx.config),
+            *sorted(str(path) for path in Path(artifact_dir(ctx, distro)).glob(pattern)),
+            f"{target}:{stage_dir}/",
+        ], ctx)
     else:
         run([
-            "scp",
+            *scp_args(ctx.config),
             "-3",
             f"{build_host}:{artifact_dir(ctx, distro)}/{pattern}",
             f"{target}:{stage_dir}/",
@@ -484,7 +582,7 @@ def service_validation_command() -> str:
         "systemctl is-active truenas-libvirt-provider.service",
         "for i in $(seq 1 20); do test -S /run/truenas-libvirt/provider.sock && break; sleep 0.25; done",
         "test -S /run/truenas-libvirt/provider.sock",
-        "/usr/libexec/truenas-libvirt/truenas_provider_daemon.py call health.check '{}'",
+        "/usr/libexec/truenas-libvirt/truenas_provider_daemon.py doctor --json",
         "test -n \"$(find /usr/lib /usr/lib64 -name libvirt_storage_backend_truenas.so -print -quit 2>/dev/null)\"",
         "virsh pool-capabilities | grep \"type='truenas'\"",
     ])
@@ -501,6 +599,7 @@ def install_ubuntu_artifacts(ctx: Context) -> None:
         "test -n \"$packages\"",
         "apt-get update",
         "DEBIAN_FRONTEND=noninteractive apt-get install -y --allow-downgrades -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold $packages",
+        "DEBIAN_FRONTEND=noninteractive dpkg -i --force-confdef --force-confold $packages",
         service_validation_command(),
         virt_manager_validation_command(),
     ])
@@ -516,7 +615,8 @@ def install_alma_artifacts(ctx: Context) -> None:
         f"cd {q(stage_dir)}",
         package_filter,
         "test -n \"$packages\"",
-        "dnf install -y $packages",
+        "dnf --disablerepo='subvirt-*' install -y $packages",
+        "rpm -Uvh --replacepkgs $packages",
         service_validation_command(),
         virt_manager_validation_command(),
     ])
@@ -560,6 +660,9 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
         "build",
         "build-ubuntu",
         "build-alma",
+        "build-provider",
+        "build-ubuntu-provider",
+        "build-alma-provider",
         "collect",
         "collect-ubuntu",
         "collect-alma",
@@ -578,18 +681,22 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
     parser.add_argument("--ref", default="HEAD")
     parser.add_argument("--build-id", required=True)
     parser.add_argument("--test-id", help="override the storage test ID while using artifacts from --build-id")
+    parser.add_argument("--lab-mode", choices=["full", "provider"], default="full", help="ephemeral lab package installation mode")
     parser.add_argument("--execute", action="store_true", help="actually run commands; default is dry-run")
     return parser.parse_args(list(argv))
 
 
 def main(argv: Iterable[str] = sys.argv[1:]) -> int:
     args = parse_args(argv)
-    ctx = Context(load_config(Path(args.config)), args.execute, args.ref, args.build_id, args.test_id)
+    ctx = Context(load_config(Path(args.config)), args.execute, args.ref, args.build_id, args.test_id, args.lab_mode)
     actions = {
         "checkout-build": lambda: checkout_build(ctx),
         "build": lambda: (build_ubuntu(ctx), build_alma(ctx)),
         "build-ubuntu": lambda: build_ubuntu(ctx),
         "build-alma": lambda: build_alma(ctx),
+        "build-provider": lambda: build_provider(ctx),
+        "build-ubuntu-provider": lambda: build_ubuntu_provider(ctx),
+        "build-alma-provider": lambda: build_alma_provider(ctx),
         "collect": lambda: collect_artifacts(ctx),
         "collect-ubuntu": lambda: collect_artifact(ctx, "ubuntu"),
         "collect-alma": lambda: collect_artifact(ctx, "alma"),

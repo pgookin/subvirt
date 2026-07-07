@@ -7,9 +7,9 @@ on:
         description: Unique build ID, for example 2026.06.30-1
         required: true
       ref:
-        description: Git ref to build
+        description: Git ref to build. Defaults to the branch or tag that triggered the workflow.
         required: false
-        default: main
+        default: ""
       refresh_sources:
         description: Refresh generated libvirt sources before building
         required: false
@@ -21,9 +21,17 @@ on:
         description: Alma libvirt package version to refresh, when refresh_sources=true
         required: false
       promote_stable:
-        description: Run Codex gate and publish to public stable after tests pass
+        description: Publish to public stable after deterministic tests pass
         required: false
-        default: "true"
+        default: "false"
+      require_codex_gate:
+        description: Require Codex review to pass before stable publish
+        required: false
+        default: "false"
+      build_scope:
+        description: Build scope: full or provider
+        required: false
+        default: "full"
 
 env:
   SUBVIRT_RELEASE_CONFIG: ${{ vars.SUBVIRT_RELEASE_CONFIG || '/srv/subvirt/release/release.json' }}
@@ -35,15 +43,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.0
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ inputs.ref || github.ref_name }}
       - name: Run candidate release
         env:
           BUILD_ID: ${{ inputs.build_id }}
-          REF: ${{ inputs.ref }}
+          REF: ${{ inputs.ref || github.ref_name }}
           REFRESH_SOURCES: ${{ inputs.refresh_sources }}
           UBUNTU_VERSION: ${{ inputs.ubuntu_version }}
           ALMA_VERSION: ${{ inputs.alma_version }}
           PROMOTE_STABLE: ${{ inputs.promote_stable }}
+          REQUIRE_CODEX_GATE: ${{ inputs.require_codex_gate }}
+          BUILD_SCOPE: ${{ inputs.build_scope }}
         run: ./scripts/run-candidate-release.sh
       - uses: actions/upload-artifact@v7.0.1
         if: always()

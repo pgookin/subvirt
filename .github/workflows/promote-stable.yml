@@ -25,8 +25,10 @@ jobs:
     concurrency: subvirt-release
     steps:
       - uses: actions/checkout@v7.0.0
-      - name: Write release evidence
-        run: ./scripts/write-release-evidence.py --build-id "${{ inputs.build_id }}"
+      - name: Download tested candidate artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download --repo "$GITHUB_REPOSITORY" --name "release-evidence-${{ inputs.build_id }}" --dir "artifacts/${{ inputs.build_id }}"
       - name: Deterministic promotion gate
         run: ./scripts/verify-release-evidence.py --build-id "${{ inputs.build_id }}" --scope "${{ inputs.scope }}"
       - name: Codex promotion gate

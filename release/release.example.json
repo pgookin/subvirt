@@ -89,7 +89,7 @@
         "support_tier": "esm",
         "source_dir": "u18",
         "build_dir_prefix": "libvirt-u18",
-        "patch": "truenas-storage-backend-u24.patch",
+        "patch": "truenas-storage-backend-u18.patch",
         "containerfile": "containers/ubuntu-18.04-build/Containerfile",
         "image": "localhost/subvirt-ubuntu-18.04-build:latest"
       },
@@ -100,7 +100,7 @@
         "support_tier": "esm",
         "source_dir": "u20",
         "build_dir_prefix": "libvirt-u20",
-        "patch": "truenas-storage-backend-u24.patch",
+        "patch": "truenas-storage-backend-u20.patch",
         "containerfile": "containers/ubuntu-20.04-build/Containerfile",
         "image": "localhost/subvirt-ubuntu-20.04-build:latest"
       },
@@ -111,7 +111,7 @@
         "support_tier": "standard",
         "source_dir": "u22",
         "build_dir_prefix": "libvirt-u22",
-        "patch": "truenas-storage-backend-u24.patch",
+        "patch": "truenas-storage-backend-u22.patch",
         "containerfile": "containers/ubuntu-22.04-build/Containerfile",
         "image": "localhost/subvirt-ubuntu-22.04-build:latest"
       },
@@ -133,7 +133,7 @@
         "support_tier": "standard",
         "source_dir": "u26",
         "build_dir_prefix": "libvirt-u26",
-        "patch": "truenas-storage-backend-u24.patch",
+        "patch": "truenas-storage-backend-u26.patch",
         "containerfile": "containers/ubuntu-26.04-build/Containerfile",
         "image": "localhost/subvirt-ubuntu-26.04-build:latest"
       }

@@ -1,0 +1,801 @@
+diff -ruN libvirt-u18-clean.orig/docs/schemas/storagepool.rng libvirt-u18-clean/docs/schemas/storagepool.rng
+--- libvirt-u18-clean.orig/docs/schemas/storagepool.rng	2017-10-30 03:32:36.685366901 -0400
++++ libvirt-u18-clean/docs/schemas/storagepool.rng	2026-07-08 03:53:35.590178008 -0400
+@@ -25,6 +25,7 @@
+         <ref name='poolgluster'/>
+         <ref name='poolzfs'/>
+         <ref name='poolvstorage'/>
++        <ref name='pooltruenas'/>
+       </choice>
+     </element>
+   </define>
+@@ -186,6 +187,34 @@
+     </interleave>
+   </define>
+ 
++  <define name='pooltruenas'>
++    <attribute name='type'>
++      <value>truenas</value>
++    </attribute>
++    <interleave>
++      <ref name='commonMetadataNameOptional'/>
++      <ref name='sizing'/>
++      <ref name='sourcetruenas'/>
++      <ref name='target'/>
++    </interleave>
++  </define>
++
++  <define name='sourcetruenas'>
++    <element name='source'>
++      <interleave>
++        <element name='name'><text/></element>
++        <element name='protocol'>
++          <attribute name='type'>
++            <choice>
++              <value>iscsi</value>
++              <value>nvmeof</value>
++            </choice>
++          </attribute>
++        </element>
++      </interleave>
++    </element>
++  </define>
++
+   <define name='sourceinfovendor'>
+     <interleave>
+       <optional>
+diff -ruN libvirt-u18-clean.orig/src/Makefile.am libvirt-u18-clean/src/Makefile.am
+--- libvirt-u18-clean.orig/src/Makefile.am	2026-07-08 03:50:54.000000000 -0400
++++ libvirt-u18-clean/src/Makefile.am	2026-07-08 03:53:35.589802749 -0400
+@@ -1056,6 +1056,10 @@
+                 storage/storage_backend_vstorage.h \
+                 storage/storage_backend_vstorage.c
+ 
++STORAGE_DRIVER_TRUENAS_SOURCES = \
++                storage/storage_backend_truenas.h \
++                storage/storage_backend_truenas.c
++
+ STORAGE_HELPER_DISK_SOURCES = \
+ 		storage/parthelper.c
+ 
+@@ -1807,6 +1811,15 @@
+ 	-module -avoid-version $(AM_LDFLAGS)
+ endif WITH_STORAGE_VSTORAGE
+ 
++libvirt_storage_backend_truenas_la_SOURCES = \
++	$(STORAGE_DRIVER_TRUENAS_SOURCES)
++libvirt_storage_backend_truenas_la_CFLAGS = \
++	-I$(srcdir)/conf \
++	$(AM_CFLAGS)
++storagebackend_LTLIBRARIES += libvirt_storage_backend_truenas.la
++libvirt_storage_backend_truenas_la_LDFLAGS = \
++	-module -avoid-version $(AM_LDFLAGS)
++
+ if WITH_NODE_DEVICES
+ # Needed to keep automake quiet about conditionals
+ mod_LTLIBRARIES += libvirt_driver_nodedev.la
+diff -ruN libvirt-u18-clean.orig/src/conf/storage_conf.c libvirt-u18-clean/src/conf/storage_conf.c
+--- libvirt-u18-clean.orig/src/conf/storage_conf.c	2017-10-30 03:32:36.696366778 -0400
++++ libvirt-u18-clean/src/conf/storage_conf.c	2026-07-08 03:53:35.588671373 -0400
+@@ -64,7 +64,7 @@
+               "logical", "disk", "iscsi",
+               "scsi", "mpath", "rbd",
+               "sheepdog", "gluster", "zfs",
+-              "vstorage")
++              "vstorage", "truenas")
+ 
+ VIR_ENUM_IMPL(virStoragePoolFormatFileSystem,
+               VIR_STORAGE_POOL_FS_LAST,
+@@ -207,6 +207,16 @@
+          .formatToString = virStoragePoolFormatDiskTypeToString,
+       }
+     },
++    {.poolType = VIR_STORAGE_POOL_TRUENAS,
++     .poolOptions = {
++         .flags = (VIR_STORAGE_POOL_SOURCE_NAME),
++     },
++     .volOptions = {
++         .defaultFormat = VIR_STORAGE_FILE_RAW,
++         .formatFromString = virStorageVolumeFormatFromString,
++         .formatToString = virStorageFileFormatTypeToString,
++     },
++    },
+     {.poolType = VIR_STORAGE_POOL_SCSI,
+      .poolOptions = {
+          .flags = (VIR_STORAGE_POOL_SOURCE_ADAPTER),
+@@ -373,6 +383,7 @@
+     virStorageAuthDefFree(source->auth);
+     VIR_FREE(source->vendor);
+     VIR_FREE(source->product);
++    VIR_FREE(source->protocolType);
+ }
+ 
+ 
+@@ -543,6 +554,14 @@
+     source->vendor = virXPathString("string(./vendor/@name)", ctxt);
+     source->product = virXPathString("string(./product/@name)", ctxt);
+ 
++    source->protocolType = virXPathString("string(./protocol/@type)", ctxt);
++    if (source->protocolType && pool_type != VIR_STORAGE_POOL_TRUENAS) {
++        virReportError(VIR_ERR_CONFIG_UNSUPPORTED,
++                       _("storage pool protocol type unsupported for pool type '%s'"),
++                       virStoragePoolTypeToString(pool_type));
++        goto cleanup;
++    }
++
+     ret = 0;
+  cleanup:
+     ctxt->node = relnode;
+@@ -960,6 +979,7 @@
+ 
+     virBufferEscapeString(buf, "<vendor name='%s'/>\n", src->vendor);
+     virBufferEscapeString(buf, "<product name='%s'/>\n", src->product);
++    virBufferEscapeString(buf, "<protocol type='%s'/>\n", src->protocolType);
+ 
+     virBufferAdjustIndent(buf, -2);
+     virBufferAddLit(buf, "</source>\n");
+diff -ruN libvirt-u18-clean.orig/src/conf/storage_conf.h libvirt-u18-clean/src/conf/storage_conf.h
+--- libvirt-u18-clean.orig/src/conf/storage_conf.h	2017-11-13 15:47:48.340574686 -0500
++++ libvirt-u18-clean/src/conf/storage_conf.h	2026-07-08 03:53:35.587633940 -0400
+@@ -92,6 +92,7 @@
+     VIR_STORAGE_POOL_GLUSTER,  /* Gluster device */
+     VIR_STORAGE_POOL_ZFS,      /* ZFS */
+     VIR_STORAGE_POOL_VSTORAGE, /* Virtuozzo Storage */
++    VIR_STORAGE_POOL_TRUENAS,  /* TrueNAS provider-backed zvols */
+ 
+     VIR_STORAGE_POOL_LAST,
+ } virStoragePoolType;
+@@ -203,6 +204,9 @@
+      * or lvm version, etc.
+      */
+     int format;
++
++    /* Protocol type value for provider-backed pools */
++    char *protocolType;
+ };
+ 
+ typedef struct _virStoragePoolTarget virStoragePoolTarget;
+diff -ruN libvirt-u18-clean.orig/src/conf/virstorageobj.c libvirt-u18-clean/src/conf/virstorageobj.c
+--- libvirt-u18-clean.orig/src/conf/virstorageobj.c	2018-01-12 09:48:36.989415392 -0500
++++ libvirt-u18-clean/src/conf/virstorageobj.c	2026-07-08 03:53:35.588881838 -0400
+@@ -1878,6 +1878,13 @@
+             return 1;
+         break;
+ 
++    case VIR_STORAGE_POOL_TRUENAS:
++        if (data->def->type == obj->def->type &&
++            STREQ_NULLABLE(obj->def->source.name, data->def->source.name) &&
++            STREQ_NULLABLE(obj->def->source.protocolType, data->def->source.protocolType))
++            return 1;
++        break;
++
+     case VIR_STORAGE_POOL_RBD:
+     case VIR_STORAGE_POOL_LAST:
+         break;
+diff -ruN libvirt-u18-clean.orig/src/storage/storage_backend.c libvirt-u18-clean/src/storage/storage_backend.c
+--- libvirt-u18-clean.orig/src/storage/storage_backend.c	2017-11-13 15:47:48.376574304 -0500
++++ libvirt-u18-clean/src/storage/storage_backend.c	2026-07-08 03:53:35.589275007 -0400
+@@ -69,6 +69,7 @@
+ #if WITH_STORAGE_VSTORAGE
+ # include "storage_backend_vstorage.h"
+ #endif
++#include "storage_backend_truenas.h"
+ 
+ #define VIR_FROM_THIS VIR_FROM_STORAGE
+ 
+@@ -154,6 +155,7 @@
+ #if WITH_STORAGE_VSTORAGE
+     VIR_STORAGE_BACKEND_REGISTER(virStorageBackendVstorageRegister, "vstorage");
+ #endif
++    VIR_STORAGE_BACKEND_REGISTER(virStorageBackendTrueNASRegister, "truenas");
+ 
+     return 0;
+ }
+diff -ruN libvirt-u18-clean.orig/src/storage/storage_backend_truenas.c libvirt-u18-clean/src/storage/storage_backend_truenas.c
+--- libvirt-u18-clean.orig/src/storage/storage_backend_truenas.c	1969-12-31 19:00:00.000000000 -0500
++++ libvirt-u18-clean/src/storage/storage_backend_truenas.c	2026-07-08 03:53:35.590361312 -0400
+@@ -0,0 +1,590 @@
++/*
++ * storage_backend_truenas.c: storage backend for TrueNAS provider daemon
++ */
++
++#include <config.h>
++
++#include <errno.h>
++#include <sys/socket.h>
++#include <sys/un.h>
++#include <unistd.h>
++
++#include "storage_conf.h"
++#include "storage_backend.h"
++#include "storage_backend_truenas.h"
++#include "storage_util.h"
++#include "viralloc.h"
++#include "virerror.h"
++#include "virfile.h"
++#include "virjson.h"
++#include "virlog.h"
++#include "virstring.h"
++
++#define VIR_FROM_THIS VIR_FROM_STORAGE
++
++VIR_LOG_INIT("storage.storage_backend_truenas");
++
++#define TRUENAS_PROVIDER_SOCKET "/run/truenas-libvirt/provider.sock"
++
++static const char *
++virStorageBackendTrueNASTransport(virStoragePoolDefPtr def)
++{
++    if (def->source.protocolType)
++        return def->source.protocolType;
++
++    return def->source.product;
++}
++
++static int
++virStorageBackendTrueNASValidate(virStoragePoolDefPtr def)
++{
++    const char *transport = virStorageBackendTrueNASTransport(def);
++
++    if (!def->source.name) {
++        virReportError(VIR_ERR_CONFIG_UNSUPPORTED, "%s",
++                       _("TrueNAS storage pool requires source name"));
++        return -1;
++    }
++
++    if (!transport || !(STREQ(transport, "iscsi") || STREQ(transport, "nvmeof"))) {
++        virReportError(VIR_ERR_CONFIG_UNSUPPORTED, "%s",
++                       _("TrueNAS storage pool requires protocol type 'iscsi' or 'nvmeof'"));
++        return -1;
++    }
++
++    return 0;
++}
++
++static int
++virStorageBackendTrueNASConnect(void)
++{
++    int fd = -1;
++    struct sockaddr_un addr;
++
++    if ((fd = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
++        virReportSystemError(errno, "%s", _("failed to create TrueNAS provider socket"));
++        return -1;
++    }
++
++    memset(&addr, 0, sizeof(addr));
++    addr.sun_family = AF_UNIX;
++    if (virStrcpyStatic(addr.sun_path, TRUENAS_PROVIDER_SOCKET) < 0) {
++        virReportError(VIR_ERR_INTERNAL_ERROR, "%s", _("TrueNAS provider socket path is too long"));
++        VIR_FORCE_CLOSE(fd);
++        return -1;
++    }
++
++    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
++        virReportSystemError(errno,
++                             _("failed to connect to TrueNAS provider socket %s"),
++                             TRUENAS_PROVIDER_SOCKET);
++        VIR_FORCE_CLOSE(fd);
++        return -1;
++    }
++
++    return fd;
++}
++
++static int
++virStorageBackendTrueNASWriteAll(int fd, const char *buf, size_t len)
++{
++    while (len > 0) {
++        ssize_t done = write(fd, buf, len);
++        if (done < 0) {
++            if (errno == EINTR)
++                continue;
++            return -1;
++        }
++        if (done == 0) {
++            errno = EIO;
++            return -1;
++        }
++        buf += done;
++        len -= done;
++    }
++    return 0;
++}
++
++static virJSONValuePtr
++virStorageBackendTrueNASCall(const char *method,
++                             virJSONValuePtr params)
++{
++    int fd = -1;
++    char *requeststr = NULL;
++    char *responsestr = NULL;
++    char *responsebuf = NULL;
++    virJSONValuePtr request = NULL;
++    virJSONValuePtr response = NULL;
++    virJSONValuePtr result = NULL;
++    virJSONValuePtr error = NULL;
++    size_t offset = 0;
++    int ret = -1;
++
++    if (VIR_ALLOC_N(responsebuf, 1024 * 1024 + 1) < 0)
++        goto cleanup;
++
++    if (!(request = virJSONValueNewObject()))
++        goto cleanup;
++
++    if (virJSONValueObjectAppendString(request, "jsonrpc", "2.0") < 0 ||
++        virJSONValueObjectAppendNumberInt(request, "id", 1) < 0 ||
++        virJSONValueObjectAppendString(request, "method", method) < 0 ||
++        virJSONValueObjectAppend(request, "params", params) < 0)
++        goto cleanup;
++    params = NULL;
++
++    if (!(requeststr = virJSONValueToString(request, false)))
++        goto cleanup;
++
++    if ((fd = virStorageBackendTrueNASConnect()) < 0)
++        goto cleanup;
++
++    if (virStorageBackendTrueNASWriteAll(fd, requeststr, strlen(requeststr)) < 0 ||
++        virStorageBackendTrueNASWriteAll(fd, "\n", 1) < 0) {
++        virReportSystemError(errno, "%s", _("failed to write TrueNAS provider request"));
++        goto cleanup;
++    }
++
++    for (;;) {
++        ssize_t nread;
++        if (offset >= 1024 * 1024) {
++            virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
++                           _("TrueNAS provider response exceeded 1 MiB"));
++            goto cleanup;
++        }
++
++        nread = read(fd, responsebuf + offset, 1024 * 1024 - offset);
++        if (nread < 0) {
++            if (errno == EINTR)
++                continue;
++            virReportSystemError(errno, "%s", _("failed to read TrueNAS provider response"));
++            goto cleanup;
++        }
++        if (nread == 0)
++            break;
++        offset += nread;
++        responsebuf[offset] = '\0';
++        if (memchr(responsebuf, '\n', offset))
++            break;
++    }
++
++    if (offset == 0) {
++        virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
++                       _("empty response from TrueNAS provider"));
++        goto cleanup;
++    }
++
++    VIR_STEAL_PTR(responsestr, responsebuf);
++
++    if (!(response = virJSONValueFromString(responsestr))) {
++        virReportError(VIR_ERR_INTERNAL_ERROR, "%s", _("invalid JSON from TrueNAS provider"));
++        goto cleanup;
++    }
++
++    if ((error = virJSONValueObjectGetObject(response, "error"))) {
++        const char *message = virJSONValueObjectGetString(error, "message");
++        virReportError(VIR_ERR_INTERNAL_ERROR,
++                       _("TrueNAS provider error: %s"),
++                       message ? message : _("unknown error"));
++        goto cleanup;
++    }
++
++    if (virJSONValueObjectRemoveKey(response, "result", &result) <= 0) {
++        virReportError(VIR_ERR_INTERNAL_ERROR, "%s", _("missing result from TrueNAS provider"));
++        goto cleanup;
++    }
++
++    ret = 0;
++
++ cleanup:
++    VIR_FORCE_CLOSE(fd);
++    virJSONValueFree(params);
++    virJSONValueFree(request);
++    virJSONValueFree(response);
++    VIR_FREE(requeststr);
++    VIR_FREE(responsestr);
++    VIR_FREE(responsebuf);
++    if (ret < 0) {
++        virJSONValueFree(result);
++        result = NULL;
++    }
++    return result;
++}
++
++static int
++virStorageBackendTrueNASAppendCommonParams(virJSONValuePtr params,
++                                           virStoragePoolDefPtr def)
++{
++    const char *transport = virStorageBackendTrueNASTransport(def);
++
++    if (virJSONValueObjectAppendString(params, "pool", def->source.name) < 0 ||
++        virJSONValueObjectAppendString(params, "transport", transport) < 0)
++        return -1;
++    return 0;
++}
++
++static int
++virStorageBackendTrueNASAddVolume(virStoragePoolObjPtr pool,
++                                  virJSONValuePtr item)
++{
++    virStorageVolDefPtr vol = NULL;
++    const char *name = virJSONValueObjectGetString(item, "name");
++    const char *path = virJSONValueObjectGetString(item, "path");
++    unsigned long long capacity = 0;
++    unsigned long long allocation = 0;
++    virStoragePoolDefPtr def = virStoragePoolObjGetDef(pool);
++
++    if (!name)
++        return 0;
++
++    if (VIR_ALLOC(vol) < 0)
++        goto cleanup;
++
++    vol->type = VIR_STORAGE_VOL_BLOCK;
++    if (VIR_STRDUP(vol->name, name) < 0)
++        goto cleanup;
++
++    if (virJSONValueObjectGetNumberUlong(item, "capacity", &capacity) == 0)
++        vol->target.capacity = capacity;
++
++    if (virJSONValueObjectGetNumberUlong(item, "allocation", &allocation) == 0)
++        vol->target.allocation = allocation;
++
++    if (path) {
++        if (VIR_STRDUP(vol->target.path, path) < 0)
++            goto cleanup;
++    } else if (def->target.path) {
++        if (virAsprintf(&vol->target.path, "%s/%s", def->target.path, name) < 0)
++            goto cleanup;
++    } else if (VIR_STRDUP(vol->target.path, name) < 0) {
++        goto cleanup;
++    }
++
++    if (VIR_STRDUP(vol->key, vol->target.path) < 0)
++        goto cleanup;
++
++    if (virStoragePoolObjAddVol(pool, vol) < 0)
++        goto cleanup;
++    vol = NULL;
++
++    return 0;
++
++ cleanup:
++    virStorageVolDefFree(vol);
++    return -1;
++}
++
++static char *
++virStorageBackendTrueNASFindPoolSources(virConnectPtr conn ATTRIBUTE_UNUSED,
++                                        const char *srcSpec ATTRIBUTE_UNUSED,
++                                        unsigned int flags)
++{
++    virJSONValuePtr params = NULL;
++    virJSONValuePtr result = NULL;
++    virJSONValuePtr pools = NULL;
++    virStoragePoolSourceList sourceList = {
++        .type = VIR_STORAGE_POOL_TRUENAS,
++        .nsources = 0,
++        .sources = NULL,
++    };
++    char *ret = NULL;
++    size_t i;
++
++    virCheckFlags(0, NULL);
++
++    if (!(params = virJSONValueNewObject()))
++        goto cleanup;
++
++    if (!(result = virStorageBackendTrueNASCall("pool.list", params)))
++        goto cleanup;
++    params = NULL;
++
++    if (!(pools = virJSONValueObjectGetArray(result, "pools"))) {
++        virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
++                       _("TrueNAS provider pool.list result missing pools array"));
++        goto cleanup;
++    }
++
++    for (i = 0; i < virJSONValueArraySize(pools); i++) {
++        virJSONValuePtr item = virJSONValueArrayGet(pools, i);
++        const char *name = virJSONValueObjectGetString(item, "name");
++        virStoragePoolSourcePtr src;
++
++        if (!name)
++            continue;
++        if (!(src = virStoragePoolSourceListNewSource(&sourceList)))
++            goto cleanup;
++        if (VIR_STRDUP(src->name, name) < 0)
++            goto cleanup;
++    }
++
++    ret = virStoragePoolSourceListFormat(&sourceList);
++
++ cleanup:
++    virStoragePoolSourceListClear(&sourceList);
++    virJSONValueFree(params);
++    virJSONValueFree(result);
++    return ret;
++}
++
++static int
++virStorageBackendTrueNASStartPool(virConnectPtr conn ATTRIBUTE_UNUSED,
++                                  virStoragePoolObjPtr pool)
++{
++    virStoragePoolDefPtr def = virStoragePoolObjGetDef(pool);
++
++    return virStorageBackendTrueNASValidate(def);
++}
++
++static int
++virStorageBackendTrueNASRefreshPool(virConnectPtr conn ATTRIBUTE_UNUSED,
++                                    virStoragePoolObjPtr pool)
++{
++    virStoragePoolDefPtr def = virStoragePoolObjGetDef(pool);
++    virJSONValuePtr params = NULL;
++    virJSONValuePtr result = NULL;
++    virJSONValuePtr poolinfo;
++    virJSONValuePtr volumes;
++    size_t i;
++    int ret = -1;
++
++    if (virStorageBackendTrueNASValidate(def) < 0)
++        return -1;
++
++    if (!(params = virJSONValueNewObject()))
++        goto cleanup;
++
++    if (virStorageBackendTrueNASAppendCommonParams(params, def) < 0)
++        goto cleanup;
++
++    if (!(result = virStorageBackendTrueNASCall("pool.refresh", params)))
++        goto cleanup;
++    params = NULL;
++
++    virStoragePoolObjClearVols(pool);
++
++    if ((poolinfo = virJSONValueObjectGetObject(result, "pool"))) {
++        unsigned long long capacity = 0;
++        unsigned long long allocation = 0;
++        unsigned long long available = 0;
++        if (virJSONValueObjectGetNumberUlong(poolinfo, "capacity", &capacity) == 0 &&
++            virJSONValueObjectGetNumberUlong(poolinfo, "allocation", &allocation) == 0 &&
++            virJSONValueObjectGetNumberUlong(poolinfo, "available", &available) == 0) {
++            def->capacity = capacity;
++            def->allocation = allocation;
++            def->available = available;
++        }
++    }
++
++    if (!(volumes = virJSONValueObjectGetArray(result, "volumes")))
++        goto cleanup;
++
++    for (i = 0; i < virJSONValueArraySize(volumes); i++) {
++        virJSONValuePtr item = virJSONValueArrayGet(volumes, i);
++        if (virStorageBackendTrueNASAddVolume(pool, item) < 0)
++            goto cleanup;
++    }
++
++    ret = 0;
++
++ cleanup:
++    virJSONValueFree(params);
++    virJSONValueFree(result);
++    return ret;
++}
++
++static int
++virStorageBackendTrueNASCreateVol(virConnectPtr conn ATTRIBUTE_UNUSED,
++                                  virStoragePoolObjPtr pool,
++                                  virStorageVolDefPtr vol)
++{
++    virStoragePoolDefPtr def = virStoragePoolObjGetDef(pool);
++    virJSONValuePtr params = NULL;
++    virJSONValuePtr result = NULL;
++    int ret = -1;
++
++    if (virStorageBackendTrueNASValidate(def) < 0)
++        return -1;
++
++    if (!(params = virJSONValueNewObject()))
++        goto cleanup;
++
++    if (virStorageBackendTrueNASAppendCommonParams(params, def) < 0 ||
++        virJSONValueObjectAppendString(params, "name", vol->name) < 0 ||
++        virJSONValueObjectAppendNumberUlong(params, "capacity", vol->target.capacity) < 0)
++        goto cleanup;
++
++    if (!(result = virStorageBackendTrueNASCall("vol.create", params)))
++        goto cleanup;
++    params = NULL;
++
++    VIR_FREE(vol->target.path);
++    if (VIR_STRDUP(vol->target.path, virJSONValueObjectGetString(result, "path")) < 0)
++        goto cleanup;
++    VIR_FREE(vol->key);
++    if (VIR_STRDUP(vol->key, vol->target.path) < 0)
++        goto cleanup;
++    vol->type = VIR_STORAGE_VOL_BLOCK;
++
++    ret = 0;
++
++ cleanup:
++    virJSONValueFree(params);
++    virJSONValueFree(result);
++    return ret;
++}
++
++static int
++virStorageBackendTrueNASBuildVolFrom(virConnectPtr conn ATTRIBUTE_UNUSED,
++                                     virStoragePoolObjPtr pool,
++                                     virStorageVolDefPtr origvol,
++                                     virStorageVolDefPtr newvol,
++                                     unsigned int flags)
++{
++    virStoragePoolDefPtr def = virStoragePoolObjGetDef(pool);
++    virJSONValuePtr params = NULL;
++    virJSONValuePtr result = NULL;
++    unsigned long long resultCapacity = 0;
++    unsigned long long resultAllocation = 0;
++    int ret = -1;
++
++    virCheckFlags(0, -1);
++
++    if (virStorageBackendTrueNASValidate(def) < 0)
++        return -1;
++
++    if (!(params = virJSONValueNewObject()))
++        goto cleanup;
++
++    if (virStorageBackendTrueNASAppendCommonParams(params, def) < 0 ||
++        virJSONValueObjectAppendString(params, "source", origvol->name) < 0 ||
++        virJSONValueObjectAppendString(params, "target", newvol->name) < 0 ||
++        virJSONValueObjectAppendBoolean(params, "replace_existing", true) < 0)
++        goto cleanup;
++
++    if (!(result = virStorageBackendTrueNASCall("vol.clone", params)))
++        goto cleanup;
++    params = NULL;
++
++    VIR_FREE(newvol->target.path);
++    if (VIR_STRDUP(newvol->target.path, virJSONValueObjectGetString(result, "path")) < 0)
++        goto cleanup;
++    VIR_FREE(newvol->key);
++    if (VIR_STRDUP(newvol->key, newvol->target.path) < 0)
++        goto cleanup;
++
++    if (virJSONValueObjectGetNumberUlong(result, "capacity", &resultCapacity) == 0)
++        newvol->target.capacity = resultCapacity;
++    if (virJSONValueObjectGetNumberUlong(result, "allocation", &resultAllocation) == 0)
++        newvol->target.allocation = resultAllocation;
++    newvol->type = VIR_STORAGE_VOL_BLOCK;
++
++    ret = 0;
++
++ cleanup:
++    virJSONValueFree(params);
++    virJSONValueFree(result);
++    return ret;
++}
++
++static int
++virStorageBackendTrueNASResizeVol(virConnectPtr conn ATTRIBUTE_UNUSED,
++                                  virStoragePoolObjPtr pool,
++                                  virStorageVolDefPtr vol,
++                                  unsigned long long capacity,
++                                  unsigned int flags)
++{
++    virStoragePoolDefPtr def = virStoragePoolObjGetDef(pool);
++    virJSONValuePtr params = NULL;
++    virJSONValuePtr result = NULL;
++    unsigned long long resultCapacity = 0;
++    unsigned long long resultAllocation = 0;
++    int ret = -1;
++
++    if (flags & VIR_STORAGE_VOL_RESIZE_ALLOCATE) {
++        virReportError(VIR_ERR_CONFIG_UNSUPPORTED, "%s",
++                       _("TrueNAS volumes do not support resize allocation requests"));
++        return -1;
++    }
++
++    if (virStorageBackendTrueNASValidate(def) < 0)
++        return -1;
++
++    if (!(params = virJSONValueNewObject()))
++        goto cleanup;
++
++    if (virStorageBackendTrueNASAppendCommonParams(params, def) < 0 ||
++        virJSONValueObjectAppendString(params, "name", vol->name) < 0 ||
++        virJSONValueObjectAppendNumberUlong(params, "capacity", capacity) < 0)
++        goto cleanup;
++
++    if (!(result = virStorageBackendTrueNASCall("vol.resize", params)))
++        goto cleanup;
++    params = NULL;
++
++    if (virJSONValueObjectGetNumberUlong(result, "capacity", &resultCapacity) == 0)
++        vol->target.capacity = resultCapacity;
++    else
++        vol->target.capacity = capacity;
++    if (virJSONValueObjectGetNumberUlong(result, "allocation", &resultAllocation) == 0)
++        vol->target.allocation = resultAllocation;
++
++    ret = 0;
++
++ cleanup:
++    virJSONValueFree(params);
++    virJSONValueFree(result);
++    return ret;
++}
++
++static int
++virStorageBackendTrueNASDeleteVol(virConnectPtr conn ATTRIBUTE_UNUSED,
++                                  virStoragePoolObjPtr pool,
++                                  virStorageVolDefPtr vol,
++                                  unsigned int flags)
++{
++    virStoragePoolDefPtr def = virStoragePoolObjGetDef(pool);
++    virJSONValuePtr params = NULL;
++    virJSONValuePtr result = NULL;
++    bool deleteSnapshots = flags & VIR_STORAGE_VOL_DELETE_WITH_SNAPSHOTS;
++    int ret = -1;
++
++    virCheckFlags(VIR_STORAGE_VOL_DELETE_WITH_SNAPSHOTS, -1);
++
++    if (!(params = virJSONValueNewObject()))
++        goto cleanup;
++
++    if (virStorageBackendTrueNASAppendCommonParams(params, def) < 0 ||
++        virJSONValueObjectAppendString(params, "name", vol->name) < 0 ||
++        virJSONValueObjectAppendBoolean(params, "delete_snapshots", deleteSnapshots) < 0)
++        goto cleanup;
++
++    if (!(result = virStorageBackendTrueNASCall("vol.delete", params)))
++        goto cleanup;
++    params = NULL;
++
++    ret = 0;
++
++ cleanup:
++    virJSONValueFree(params);
++    virJSONValueFree(result);
++    return ret;
++}
++
++virStorageBackend virStorageBackendTrueNAS = {
++    .type = VIR_STORAGE_POOL_TRUENAS,
++
++    .findPoolSources = virStorageBackendTrueNASFindPoolSources,
++    .startPool = virStorageBackendTrueNASStartPool,
++    .refreshPool = virStorageBackendTrueNASRefreshPool,
++    .createVol = virStorageBackendTrueNASCreateVol,
++    .buildVolFrom = virStorageBackendTrueNASBuildVolFrom,
++    .deleteVol = virStorageBackendTrueNASDeleteVol,
++    .resizeVol = virStorageBackendTrueNASResizeVol,
++};
++
++int
++virStorageBackendTrueNASRegister(void)
++{
++    return virStorageBackendRegister(&virStorageBackendTrueNAS);
++}
+diff -ruN libvirt-u18-clean.orig/src/storage/storage_backend_truenas.h libvirt-u18-clean/src/storage/storage_backend_truenas.h
+--- libvirt-u18-clean.orig/src/storage/storage_backend_truenas.h	1969-12-31 19:00:00.000000000 -0500
++++ libvirt-u18-clean/src/storage/storage_backend_truenas.h	2026-07-08 03:53:35.590306641 -0400
+@@ -0,0 +1,10 @@
++/*
++ * storage_backend_truenas.h: storage backend for TrueNAS provider daemon
++ */
++
++#ifndef __VIR_STORAGE_BACKEND_TRUENAS_H__
++# define __VIR_STORAGE_BACKEND_TRUENAS_H__
++
++int virStorageBackendTrueNASRegister(void);
++
++#endif /* __VIR_STORAGE_BACKEND_TRUENAS_H__ */

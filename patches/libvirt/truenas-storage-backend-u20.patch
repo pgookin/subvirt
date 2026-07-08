@@ -801,3 +801,33 @@ diff -ruN libvirt-u20-clean.orig/src/storage/storage_backend_truenas.h libvirt-u
 +int virStorageBackendTrueNASRegister(void);
 +
 +#endif /* __VIR_STORAGE_BACKEND_TRUENAS_H__ */
+diff -ruN libvirt-u20-clean.orig/tests/storagepoolcapsschemadata/poolcaps-fs.xml libvirt-u20-clean/tests/storagepoolcapsschemadata/poolcaps-fs.xml
+--- libvirt-u20-clean.orig/tests/storagepoolcapsschemadata/poolcaps-fs.xml	2020-01-10 03:51:00.404268550 -0500
++++ libvirt-u20-clean/tests/storagepoolcapsschemadata/poolcaps-fs.xml	2026-07-08 05:40:00.000000000 -0400
+@@ -204,4 +204,11 @@
+       </enum>
+     </volOptions>
+   </pool>
++  <pool type='truenas' supported='no'>
++    <volOptions>
++      <defaultFormat type='raw'/>
++      <enum name='targetFormatType'>
++      </enum>
++    </volOptions>
++  </pool>
+ </storagepoolCapabilities>
+diff -ruN libvirt-u20-clean.orig/tests/storagepoolcapsschemadata/poolcaps-full.xml libvirt-u20-clean/tests/storagepoolcapsschemadata/poolcaps-full.xml
+--- libvirt-u20-clean.orig/tests/storagepoolcapsschemadata/poolcaps-full.xml	2020-01-10 03:51:00.404268550 -0500
++++ libvirt-u20-clean/tests/storagepoolcapsschemadata/poolcaps-full.xml	2026-07-08 05:40:00.000000000 -0400
+@@ -204,4 +204,11 @@
+       </enum>
+     </volOptions>
+   </pool>
++  <pool type='truenas' supported='yes'>
++    <volOptions>
++      <defaultFormat type='raw'/>
++      <enum name='targetFormatType'>
++      </enum>
++    </volOptions>
++  </pool>
+ </storagepoolCapabilities>

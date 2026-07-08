@@ -4,7 +4,14 @@ rm -rf provider-build/deb
 mkdir -p provider-build/deb/DEBIAN provider-build/deb/usr/libexec/truenas-libvirt provider-build/deb/etc/truenas-libvirt provider-build/deb/usr/lib/systemd/system provider-build/deb/usr/lib/tmpfiles.d dist
 rm -f dist/truenas-libvirt-provider_*_all.deb
 cp packaging/debian-provider/control provider-build/deb/DEBIAN/control
-PROVIDER_VERSION=$(./scripts/subvirt_versions.py provider-deb-version)
+PROVIDER_VERSION=$(python3 - <<'PYVERSION'
+import json
+with open("release/subvirt-version.json", encoding="utf-8") as handle:
+    data = json.load(handle)
+provider = data["provider"]
+print("{}-{}".format(provider["version"], provider["release"]))
+PYVERSION
+)
 python3 - "$PROVIDER_VERSION" provider-build/deb/DEBIAN/control <<'PYCONTROL'
 from pathlib import Path
 import re

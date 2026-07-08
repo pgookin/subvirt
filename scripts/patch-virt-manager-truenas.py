@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Apply SubVirt TrueNAS pool support to a virt-manager source tree."""
 
-from __future__ import annotations
-
 import argparse
 import re
 from pathlib import Path

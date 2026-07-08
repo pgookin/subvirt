@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Check that virt-manager has complete TrueNAS storage pool support."""
 
-from __future__ import annotations
-
 import argparse
 import sys
 from pathlib import Path
+from typing import List, Tuple
 
 
 def parse_args() -> argparse.Namespace:
@@ -23,7 +22,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def static_checks(source_root: Path) -> list[tuple[bool, str]]:
+def static_checks(source_root: Path) -> List[Tuple[bool, str]]:
     storagepool = (source_root / "virtManager" / "object" / "storagepool.py").read_text(encoding="utf-8")
     storage = (source_root / "virtinst" / "storage.py").read_text(encoding="utf-8")
     createpool = (source_root / "virtManager" / "createpool.py").read_text(encoding="utf-8")
@@ -56,7 +55,7 @@ def static_checks(source_root: Path) -> list[tuple[bool, str]]:
     ]
 
 
-def dynamic_checks(source_root: Path) -> list[tuple[bool, str]]:
+def dynamic_checks(source_root: Path) -> List[Tuple[bool, str]]:
     sys.path.insert(0, str(source_root))
     from virtManager.object.storagepool import vmmStoragePool
     from virtinst import StoragePool

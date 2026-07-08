@@ -9,6 +9,10 @@ if ! command -v "$RUNTIME" >/dev/null 2>&1; then
   exit 1
 fi
 
+if [[ "$(basename "$RUNTIME")" == "podman" ]]; then
+  "$RUNTIME" system migrate || true
+fi
+
 eval "$(PYTHONPATH=scripts python3 - "$TARGET" <<'PYVARS'
 import shlex
 import sys

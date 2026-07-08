@@ -10,6 +10,10 @@ if ! command -v "$RUNTIME" >/dev/null 2>&1; then
   exit 1
 fi
 
+if [[ "$(basename "$RUNTIME")" == "podman" ]]; then
+  "$RUNTIME" system migrate || true
+fi
+
 "$RUNTIME" build -t "$IMAGE" -f "$CONTAINERFILE" .
 "$RUNTIME" run --rm \
   --security-opt label=disable \

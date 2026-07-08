@@ -1,7 +1,8 @@
 FROM almalinux:9
 
-RUN dnf install -y \
-        dnf-plugins-core \
+RUN dnf install -y dnf-plugins-core \
+    && dnf config-manager --set-enabled crb \
+    && dnf install -y \
         findutils \
         git \
         libxslt \

@@ -211,6 +211,7 @@ def build_ubuntu_target(ctx: Context, target: UbuntuTarget) -> None:
     out_dir = artifact_dir(ctx, ubuntu_artifact_key(target))
     remote_checkout(ctx, host)
     command = " && ".join([
+        f"rm -rf {q(out_dir)}",
         f"install -d -m 0755 {q(out_dir)}",
         f"cd {q(workdir)}",
         f"SUBVIRT_UBUNTU_TARGET={q(target.id)} ./scripts/container-build-ubuntu.sh",
@@ -230,6 +231,7 @@ def build_alma_target(ctx: Context, target: AlmaTarget) -> None:
     out_dir = artifact_dir(ctx, alma_artifact_key(target))
     remote_checkout(ctx, host)
     command = " && ".join([
+        f"rm -rf {q(out_dir)}",
         f"install -d -m 0755 {q(out_dir)}",
         f"cd {q(workdir)}",
         f"SUBVIRT_ALMA_TARGET={q(target.id)} ./scripts/container-build-alma.sh",

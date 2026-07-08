@@ -83,7 +83,7 @@ def publish_apt(incoming: Path, web_root: Path, suite: str, component: str) -> b
     if not debs:
         return False
 
-    pool = web_root / "apt" / "ubuntu" / "pool" / component
+    pool = web_root / "apt" / "ubuntu" / "pool" / component / suite
     packages_dir = web_root / "apt" / "ubuntu" / "dists" / suite / component / "binary-amd64"
     pool.mkdir(parents=True, exist_ok=True)
     packages_dir.mkdir(parents=True, exist_ok=True)

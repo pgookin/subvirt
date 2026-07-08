@@ -643,9 +643,11 @@ def published_marker(lab: Lab) -> Path:
 
 def artifact_distros(path: Path) -> list[str]:
     distros = []
-    if any((path / "ubuntu").glob("*.deb")):
+    ubuntu = path / "ubuntu"
+    if ubuntu.exists() and any(ubuntu.rglob("*.deb")):
         distros.append("ubuntu")
-    if any((path / "alma").glob("*.rpm")):
+    alma = path / "alma"
+    if alma.exists() and any(alma.rglob("*.rpm")):
         distros.append("alma")
     return distros
 

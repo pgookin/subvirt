@@ -6,22 +6,21 @@ count but the body contains a different number of old/new lines. Patch tools
 can otherwise apply only part of a hunk and leave missing source in packages.
 """
 
-from __future__ import annotations
-
 import re
 import sys
 from pathlib import Path
+from typing import List, Optional
 
 HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 
 
-def declared_count(value: str | None) -> int:
+def declared_count(value: Optional[str]) -> int:
     return 1 if value is None else int(value)
 
 
-def validate(path: Path) -> list[str]:
+def validate(path: Path) -> List[str]:
     lines = path.read_text(encoding="utf-8").splitlines()
-    errors: list[str] = []
+    errors = []  # type: List[str]
     idx = 0
     while idx < len(lines):
         match = HUNK_RE.match(lines[idx])
@@ -64,12 +63,12 @@ def validate(path: Path) -> list[str]:
     return errors
 
 
-def main(argv: list[str]) -> int:
+def main(argv: List[str]) -> int:
     if len(argv) < 2:
         print("usage: validate-unified-diff.py PATCH...", file=sys.stderr)
         return 2
 
-    all_errors: list[str] = []
+    all_errors = []  # type: List[str]
     for item in argv[1:]:
         all_errors.extend(validate(Path(item)))
 

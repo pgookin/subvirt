@@ -29,6 +29,13 @@ FULL_ALMA_PACKAGES = {
     "virt-manager-common",
     "virt-install",
 }
+
+
+def full_ubuntu_packages_for_suite(suite: str) -> set[str]:
+    packages = set(FULL_UBUNTU_PACKAGES)
+    if suite == "bionic":
+        packages -= {"virt-manager", "virtinst"}
+    return packages
 REQUIRED_LOG_PATTERNS = {
     "pool_define": r"pool-define .*(iscsi|nvmeof)-pool\.xml",
     "pool_start": r"Pool truenas-(iscsi|nvmeof) started",
@@ -158,7 +165,7 @@ def require_scope_packages(scope: str, deb_names: set[str], rpm_names: set[str],
     if not ubuntu_suites:
         fail("full build missing Ubuntu packages")
     for suite, names in sorted(ubuntu_suites.items()):
-        missing_deb = FULL_UBUNTU_PACKAGES - names
+        missing_deb = full_ubuntu_packages_for_suite(suite) - names
         if missing_deb:
             fail(f"full build missing Ubuntu packages for {suite}: {sorted(missing_deb)}")
     alma_versions = alma_rpm_names_by_version(packages)

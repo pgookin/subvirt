@@ -37,7 +37,7 @@ def validate(path: Path) -> List[str]:
 
         while idx < len(lines):
             line = lines[idx]
-            if line == "-- " or HUNK_RE.match(line) or line.startswith("diff --git "):
+            if line == "-- " or HUNK_RE.match(line) or line.startswith("diff "):
                 break
             if line.startswith("\\"):
                 idx += 1

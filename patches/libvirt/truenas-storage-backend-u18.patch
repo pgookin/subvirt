@@ -58,7 +58,7 @@ diff -ruN libvirt-u18-clean.orig/src/Makefile.am libvirt-u18-clean/src/Makefile.
  STORAGE_HELPER_DISK_SOURCES = \
  		storage/parthelper.c
  
-@@ -1807,6 +1811,15 @@
+@@ -1807,6 +1811,18 @@
  	-module -avoid-version $(AM_LDFLAGS)
  endif WITH_STORAGE_VSTORAGE
  
@@ -70,6 +70,9 @@ diff -ruN libvirt-u18-clean.orig/src/Makefile.am libvirt-u18-clean/src/Makefile.
 +storagebackend_LTLIBRARIES += libvirt_storage_backend_truenas.la
 +libvirt_storage_backend_truenas_la_LDFLAGS = \
 +	-module -avoid-version $(AM_LDFLAGS)
++libvirt_storage_backend_truenas_la_LIBADD = \
++	libvirt.la \
++	../gnulib/lib/libgnu.la
 +
  if WITH_NODE_DEVICES
  # Needed to keep automake quiet about conditionals

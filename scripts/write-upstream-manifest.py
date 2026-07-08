@@ -75,8 +75,8 @@ def patch_files(distro: str, target: UbuntuTarget | AlmaTarget | None = None) ->
     return [file_entry(path)]
 
 
-def generated_outputs(distro: str, version: str, target: UbuntuTarget | None = None) -> list[dict[str, Any]]:
-    if target is not None:
+def generated_outputs(distro: str, version: str, target: UbuntuTarget | AlmaTarget | None = None) -> list[dict[str, Any]]:
+    if isinstance(target, UbuntuTarget):
         src = ROOT / "build" / f"{target.build_dir_prefix}-{version.split('-', 1)[0]}"
         expected = src / "debian" / "changelog"
     else:

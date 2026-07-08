@@ -4,6 +4,7 @@ DIST=${SUBVIRT_UBUNTU_DIST:-noble}
 ARCH=${SUBVIRT_UBUNTU_ARCH:-amd64}
 SRC_DIR=${SUBVIRT_UBUNTU_LIBVIRT_SRC:-build/libvirt-u24-10.0.0}
 mkdir -p dist
+rm -f build/*.deb build/*.buildinfo build/*.changes
 if [[ ! -d "$SRC_DIR/debian" ]]; then
   echo "$SRC_DIR/debian is missing" >&2
   exit 1

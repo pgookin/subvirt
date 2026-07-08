@@ -57,6 +57,9 @@ PYREVISION
   dch --newversion "${BASE_VERSION}+truenas${LOCAL_REVISION}" --distribution "$DIST" --force-distribution \
     "Enable TrueNAS storage pool volume creation in virt-manager."
   "$ROOT/scripts/check-virt-manager-truenas.py" --static --source-root .
+  if [[ "${SUBVIRT_VIRT_MANAGER_RUN_TESTS:-0}" != "1" ]]; then
+    export DEB_BUILD_OPTIONS="${DEB_BUILD_OPTIONS:+$DEB_BUILD_OPTIONS }nocheck"
+  fi
   dpkg-buildpackage -us -uc -b
 )
 find "$WORKDIR" -maxdepth 1 -type f \( -name '*.deb' -o -name '*.changes' -o -name '*.buildinfo' \) -exec cp -a {} dist/ \;

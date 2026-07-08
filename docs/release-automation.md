@@ -167,7 +167,7 @@ cd /srv/subvirt/build
 ./scripts/bootstrap-public-repo-host.sh /tmp/subvirt-build-publish.pub
 ```
 
-The public bootstrap installs repo publishing dependencies, creates a dedicated `subvirt-publish` user, installs `/usr/local/libexec/subvirt/publish-repo.py`, prepares `/srv/repo/www` and `/srv/subvirt/incoming`, and generates a production signing key named `Subvirt Repository <repo@subvirt.net>` as the deploy user. The private signing key stays on the public VPS.
+The public bootstrap installs repo publishing dependencies, creates a dedicated `subvirt-publish` user, installs `/srv/subvirt/tools/publish-repo.py`, prepares `/srv/repo/www`, `/srv/subvirt/incoming`, and `/srv/subvirt/tools`, and generates a production signing key named `Subvirt Repository <repo@subvirt.net>` as the deploy user. The private signing key stays on the public VPS.
 
 The build runner publishes to the public VPS over SSH as `subvirt-publish@repo.subvirt.net`. Public publishing writes only the `stable` channel; candidate and staging validation stay private.
 

@@ -42,7 +42,7 @@
     "yum_distro_path": "almalinux/10",
     "base_url": "https://repo.subvirt.net",
     "gpg_name": "Subvirt Repository <repo@subvirt.net>",
-    "publish_script": "/usr/local/libexec/subvirt/publish-repo.py",
+    "publish_script": "/srv/subvirt/tools/publish-repo.py",
     "apt_distributions": [
       "bionic",
       "focal",

@@ -377,7 +377,7 @@ diff -ruN libvirt-u20-clean.orig/src/storage/storage_backend_truenas.c libvirt-u
 +        goto cleanup;
 +    }
 +
-+    VIR_STEAL_PTR(responsestr, responsebuf);
++    responsestr = g_steal_pointer(&responsebuf);
 +
 +    if (!(response = virJSONValueFromString(responsestr))) {
 +        virReportError(VIR_ERR_INTERNAL_ERROR, "%s", _("invalid JSON from TrueNAS provider"));
@@ -444,7 +444,7 @@ diff -ruN libvirt-u20-clean.orig/src/storage/storage_backend_truenas.c libvirt-u
 +        goto cleanup;
 +
 +    vol->type = VIR_STORAGE_VOL_BLOCK;
-+    if (VIR_STRDUP(vol->name, name) < 0)
++    if (!(vol->name = g_strdup(name)))
 +        goto cleanup;
 +
 +    if (virJSONValueObjectGetNumberUlong(item, "capacity", &capacity) == 0)
@@ -454,16 +454,16 @@ diff -ruN libvirt-u20-clean.orig/src/storage/storage_backend_truenas.c libvirt-u
 +        vol->target.allocation = allocation;
 +
 +    if (path) {
-+        if (VIR_STRDUP(vol->target.path, path) < 0)
++        if (!(vol->target.path = g_strdup(path)))
 +            goto cleanup;
 +    } else if (def->target.path) {
-+        if (virAsprintf(&vol->target.path, "%s/%s", def->target.path, name) < 0)
++        if (!(vol->target.path = g_strdup_printf("%s/%s", def->target.path, name)))
 +            goto cleanup;
-+    } else if (VIR_STRDUP(vol->target.path, name) < 0) {
++    } else if (!(vol->target.path = g_strdup(name))) {
 +        goto cleanup;
 +    }
 +
-+    if (VIR_STRDUP(vol->key, vol->target.path) < 0)
++    if (!(vol->key = g_strdup(vol->target.path)))
 +        goto cleanup;
 +
 +    if (virStoragePoolObjAddVol(pool, vol) < 0)
@@ -517,7 +517,7 @@ diff -ruN libvirt-u20-clean.orig/src/storage/storage_backend_truenas.c libvirt-u
 +            continue;
 +        if (!(src = virStoragePoolSourceListNewSource(&sourceList)))
 +            goto cleanup;
-+        if (VIR_STRDUP(src->name, name) < 0)
++        if (!(src->name = g_strdup(name)))
 +            goto cleanup;
 +    }
 +
@@ -621,10 +621,10 @@ diff -ruN libvirt-u20-clean.orig/src/storage/storage_backend_truenas.c libvirt-u
 +    params = NULL;
 +
 +    VIR_FREE(vol->target.path);
-+    if (VIR_STRDUP(vol->target.path, virJSONValueObjectGetString(result, "path")) < 0)
++    if (!(vol->target.path = g_strdup(virJSONValueObjectGetString(result, "path"))))
 +        goto cleanup;
 +    VIR_FREE(vol->key);
-+    if (VIR_STRDUP(vol->key, vol->target.path) < 0)
++    if (!(vol->key = g_strdup(vol->target.path)))
 +        goto cleanup;
 +    vol->type = VIR_STORAGE_VOL_BLOCK;
 +
@@ -668,10 +668,10 @@ diff -ruN libvirt-u20-clean.orig/src/storage/storage_backend_truenas.c libvirt-u
 +    params = NULL;
 +
 +    VIR_FREE(newvol->target.path);
-+    if (VIR_STRDUP(newvol->target.path, virJSONValueObjectGetString(result, "path")) < 0)
++    if (!(newvol->target.path = g_strdup(virJSONValueObjectGetString(result, "path"))))
 +        goto cleanup;
 +    VIR_FREE(newvol->key);
-+    if (VIR_STRDUP(newvol->key, newvol->target.path) < 0)
++    if (!(newvol->key = g_strdup(newvol->target.path)))
 +        goto cleanup;
 +
 +    if (virJSONValueObjectGetNumberUlong(result, "capacity", &resultCapacity) == 0)

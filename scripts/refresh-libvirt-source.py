@@ -210,13 +210,13 @@ def prepend_debian_changelog(src: Path, base_version: str, target: UbuntuTarget)
 
 
 
-def add_ubuntu_truenas_package(src: Path) -> None:
+def add_ubuntu_truenas_package(src: Path, target: UbuntuTarget) -> None:
     debian = src / "debian"
     install_file = debian / "libvirt-daemon-driver-storage-truenas.install"
-    install_file.write_text(
-        "usr/lib/*/libvirt/storage-backend/libvirt_storage_backend_truenas.so\n",
-        encoding="utf-8",
-    )
+    install_path = "usr/lib/libvirt/storage-backend/libvirt_storage_backend_truenas.so"
+    if target.id != "ubuntu-18.04":
+        install_path = "usr/lib/*/libvirt/storage-backend/libvirt_storage_backend_truenas.so"
+    install_file.write_text(f"{install_path}\n", encoding="utf-8")
 
     control = debian / "control"
     text = control.read_text(encoding="utf-8")
@@ -263,7 +263,7 @@ def refresh_ubuntu(version: str, config_path: Path, target_id: str | None = None
     if not patch_path.exists():
         raise SystemExit(f"missing Ubuntu patch for {target.id}: {patch_path}")
     run(["patch", "-p1", "-i", str(patch_path)], cwd=generated)
-    add_ubuntu_truenas_package(generated)
+    add_ubuntu_truenas_package(generated, target)
     prepend_debian_changelog(generated, version, target)
     print(f"Ubuntu source ready for {target.id}: {generated}")
 

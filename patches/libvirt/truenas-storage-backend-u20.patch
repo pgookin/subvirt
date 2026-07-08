@@ -200,7 +200,7 @@ diff -ruN libvirt-u20-clean.orig/src/storage/storage_backend.c libvirt-u20-clean
 diff -ruN libvirt-u20-clean.orig/src/storage/storage_backend_truenas.c libvirt-u20-clean/src/storage/storage_backend_truenas.c
 --- libvirt-u20-clean.orig/src/storage/storage_backend_truenas.c	1969-12-31 19:00:00.000000000 -0500
 +++ libvirt-u20-clean/src/storage/storage_backend_truenas.c	2026-07-08 04:02:36.744680420 -0400
-@@ -0,0 +1,583 @@
+@@ -0,0 +1,586 @@
 +/*
 + * storage_backend_truenas.c: storage backend for TrueNAS provider daemon
 + */
@@ -271,7 +271,7 @@ diff -ruN libvirt-u20-clean.orig/src/storage/storage_backend_truenas.c libvirt-u
 +
 +    memset(&addr, 0, sizeof(addr));
 +    addr.sun_family = AF_UNIX;
-+    if (virStrcpyStatic(addr.sun_path, TRUENAS_PROVIDER_SOCKET) < 0) {
++    if (!virStrcpyStatic(addr.sun_path, TRUENAS_PROVIDER_SOCKET)) {
 +        virReportError(VIR_ERR_INTERNAL_ERROR, "%s", _("TrueNAS provider socket path is too long"));
 +        VIR_FORCE_CLOSE(fd);
 +        return -1;
@@ -491,6 +491,7 @@ diff -ruN libvirt-u20-clean.orig/src/storage/storage_backend_truenas.c libvirt-u
 +    };
 +    char *ret = NULL;
 +    size_t i;
++    size_t j;
 +
 +    virCheckFlags(0, NULL);
 +
@@ -523,7 +524,9 @@ diff -ruN libvirt-u20-clean.orig/src/storage/storage_backend_truenas.c libvirt-u
 +    ret = virStoragePoolSourceListFormat(&sourceList);
 +
 + cleanup:
-+    virStoragePoolSourceListClear(&sourceList);
++    for (j = 0; j < sourceList.nsources; j++)
++        virStoragePoolSourceClear(&sourceList.sources[j]);
++    VIR_FREE(sourceList.sources);
 +    virJSONValueFree(params);
 +    virJSONValueFree(result);
 +    return ret;

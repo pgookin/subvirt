@@ -148,6 +148,20 @@ def write_release(apt_root: Path, suite: str, components: list[str]) -> None:
     run(["gpg", "--batch", "--yes", "--detach-sign", "--armor", "-o", str(dists / "Release.gpg"), str(release)])
 
 
+
+def publish_apt_all(incoming: Path, web_root: Path, default_suite: str, component: str) -> bool:
+    ubuntu = incoming / "ubuntu"
+    if not ubuntu.exists():
+        return False
+    published = False
+    direct_debs = sorted(ubuntu.glob("*.deb"))
+    if direct_debs:
+        published = publish_apt(ubuntu, web_root, default_suite, component) or published
+    for suite_dir in sorted(path for path in ubuntu.iterdir() if path.is_dir()):
+        if sorted(suite_dir.glob("*.deb")):
+            published = publish_apt(suite_dir, web_root, suite_dir.name, component) or published
+    return published
+
 def publish_yum(incoming: Path, web_root: Path, distro_path: str, channel: str, gpg_name: str) -> bool:
     if not incoming.exists():
         return False
@@ -175,6 +189,20 @@ def publish_yum(incoming: Path, web_root: Path, distro_path: str, channel: str, 
     return True
 
 
+
+def publish_yum_all(incoming: Path, web_root: Path, default_distro_path: str, channel: str, gpg_name: str) -> bool:
+    alma = incoming / "alma"
+    if not alma.exists():
+        return False
+    published = False
+    direct_rpms = sorted(alma.glob("*.rpm"))
+    if direct_rpms:
+        published = publish_yum(alma, web_root, default_distro_path, channel, gpg_name) or published
+    for version_dir in sorted(path for path in alma.iterdir() if path.is_dir()):
+        if sorted(version_dir.glob("*.rpm")):
+            published = publish_yum(version_dir, web_root, f"almalinux/{version_dir.name}", channel, gpg_name) or published
+    return published
+
 def export_key(web_root: Path) -> None:
     key_dir = web_root / "keys"
     key_dir.mkdir(parents=True, exist_ok=True)
@@ -194,8 +222,8 @@ def main() -> int:
     args = parser.parse_args()
 
     published = [
-        publish_apt(args.incoming / "ubuntu", args.web_root, args.suite, args.component),
-        publish_yum(args.incoming / "alma", args.web_root, args.yum_distro_path, args.component, args.gpg_name),
+        publish_apt_all(args.incoming, args.web_root, args.suite, args.component),
+        publish_yum_all(args.incoming, args.web_root, args.yum_distro_path, args.component, args.gpg_name),
     ]
     if not any(published):
         raise SystemExit(f"no publishable packages found in {args.incoming}")

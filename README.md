@@ -7,8 +7,8 @@ NVMe-oF.
 Current supported targets:
 
 - TrueNAS 25.10.x JSON-RPC WebSocket API
-- Ubuntu 24.04 libvirt hosts
-- AlmaLinux 10 libvirt hosts
+- Ubuntu LTS libvirt hosts: 18.04/20.04 through ESM-era package access, plus 22.04, 24.04, and 26.04 standard LTS
+- AlmaLinux 9 and 10 libvirt hosts
 - iSCSI and NVMe-oF transports
 - shared cluster access suitable for live migration
 
@@ -20,8 +20,8 @@ Start with the end-user guide:
 
 The public package repository is:
 
-- `https://repo.subvirt.net/apt/ubuntu` for Ubuntu 24.04
-- `https://repo.subvirt.net/yum/almalinux/10/stable` for AlmaLinux 10
+- `https://repo.subvirt.net/apt/ubuntu` for Ubuntu LTS suites bionic, focal, jammy, noble, and resolute
+- `https://repo.subvirt.net/yum/almalinux/$releasever/stable` for AlmaLinux 9 and 10
 
 The guide covers adding the repo, installing packages, configuring the TrueNAS
 provider, creating libvirt pools, and validating iSCSI or NVMe-oF volumes.
@@ -60,5 +60,5 @@ paths by `scripts/refresh-libvirt-source.py`.
 
 Release automation is in `scripts/`, `release/`, and `.github/workflows/`. The
 intended flow is GitHub Actions on a self-hosted build runner, Podman-based
-Ubuntu and AlmaLinux package builds, signed staging repos, storage and migration
+Ubuntu and AlmaLinux 9/10 package builds, signed staging repos, storage and migration
 tests, then promotion to stable. See [Release Automation](docs/release-automation.md).

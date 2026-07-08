@@ -6,7 +6,13 @@ BUILD_ID=${BUILD_ID:?BUILD_ID is required}
 REF=${REF:-main}
 REFRESH_SOURCES=${REFRESH_SOURCES:-false}
 UBUNTU_VERSION=${UBUNTU_VERSION:-}
+UBUNTU_VERSIONS=${UBUNTU_VERSIONS:-}
+UBUNTU_TARGETS=${UBUNTU_TARGETS:-${SUBVIRT_UBUNTU_TARGETS:-ubuntu-24.04}}
+export SUBVIRT_UBUNTU_TARGETS="$UBUNTU_TARGETS"
 ALMA_VERSION=${ALMA_VERSION:-}
+ALMA_VERSIONS=${ALMA_VERSIONS:-}
+ALMA_TARGETS=${ALMA_TARGETS:-${SUBVIRT_ALMA_TARGETS:-almalinux-10}}
+export SUBVIRT_ALMA_TARGETS="$ALMA_TARGETS"
 PROMOTE_STABLE=${PROMOTE_STABLE:-false}
 BUILD_UBUNTU=${BUILD_UBUNTU:-true}
 BUILD_ALMA=${BUILD_ALMA:-true}
@@ -106,14 +112,44 @@ if [[ "$REFRESH_SOURCES" == "true" ]]; then
   q_config=$(remote_quote "$CONFIG")
   refresh_commands=()
   if [[ "$BUILD_UBUNTU" == "true" ]]; then
-    test -n "$UBUNTU_VERSION"
-    q_ubuntu_version=$(remote_quote "$UBUNTU_VERSION")
-    refresh_commands+=("./scripts/refresh-libvirt-source.py --config $q_config --distro ubuntu --version $q_ubuntu_version")
+    if [[ -n "$UBUNTU_VERSIONS" ]]; then
+      IFS=',' read -r -a ubuntu_pairs <<< "$UBUNTU_VERSIONS"
+      for pair in "${ubuntu_pairs[@]}"; do
+        target=${pair%%=*}
+        version=${pair#*=}
+        test -n "$target"
+        test -n "$version"
+        q_ubuntu_target=$(remote_quote "$target")
+        q_ubuntu_version=$(remote_quote "$version")
+        refresh_commands+=("./scripts/refresh-libvirt-source.py --config $q_config --distro ubuntu --ubuntu-target $q_ubuntu_target --version $q_ubuntu_version")
+      done
+    else
+      test -n "$UBUNTU_VERSION"
+      q_ubuntu_version=$(remote_quote "$UBUNTU_VERSION")
+      refresh_commands+=("./scripts/refresh-libvirt-source.py --config $q_config --distro ubuntu --ubuntu-target ubuntu-24.04 --version $q_ubuntu_version")
+    fi
   fi
   if [[ "$BUILD_ALMA" == "true" ]]; then
-    test -n "$ALMA_VERSION"
-    q_alma_version=$(remote_quote "$ALMA_VERSION")
-    refresh_commands+=("./scripts/refresh-libvirt-source.py --config $q_config --distro alma --version $q_alma_version")
+    if [[ -n "$ALMA_VERSIONS" ]]; then
+      IFS=',' read -r -a alma_pairs <<< "$ALMA_VERSIONS"
+      for pair in "${alma_pairs[@]}"; do
+        target=${pair%%=*}
+        version=${pair#*=}
+        test -n "$target"
+        test -n "$version"
+        q_alma_target=$(remote_quote "$target")
+        q_alma_version=$(remote_quote "$version")
+        refresh_commands+=("./scripts/refresh-libvirt-source.py --config $q_config --distro alma --alma-target $q_alma_target --version $q_alma_version")
+      done
+    else
+      test -n "$ALMA_VERSION"
+      q_alma_version=$(remote_quote "$ALMA_VERSION")
+      refresh_commands+=("./scripts/refresh-libvirt-source.py --config $q_config --distro alma --alma-target almalinux-10 --version $q_alma_version")
+    fi
+  fi
+  if [[ ${#refresh_commands[@]} -eq 0 ]]; then
+    echo "REFRESH_SOURCES=true but no refresh commands were derived" >&2
+    exit 1
   fi
   refresh_command="cd $q_workdir && ${refresh_commands[0]}"
   for command in "${refresh_commands[@]:1}"; do

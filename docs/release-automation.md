@@ -5,8 +5,8 @@
 The active release flow uses one build VM, two distro test VMs, and one repository VPS.
 
 - Build VM: an Ubuntu 24.04 self-hosted runner that runs Podman.
-- Ubuntu build container: builds Ubuntu 24.04 packages inside a pinned Ubuntu image.
-- AlmaLinux build container: builds AlmaLinux 10 packages inside a pinned AlmaLinux image.
+- Ubuntu build containers: build per-LTS packages for Ubuntu 18.04, 20.04, 22.04, 24.04, and 26.04.
+- AlmaLinux build containers: build per-major packages for AlmaLinux 9 and 10.
 - Ubuntu test VM: installs only from the staging apt repo and runs smoke tests.
 - AlmaLinux test VM: installs only from the staging dnf repo and runs smoke tests.
 - Repo VPS: owns the GPG key, publishes staging/stable repos, and signs metadata.
@@ -42,17 +42,27 @@ Use `scripts/bump-version.py` for intentional feature/version changes. Typical e
 ./scripts/bump-version.py --ubuntu-virt-manager-revision 2 --alma-virt-manager-revision 2
 ```
 
-When the upstream libvirt checker detects a new parent package, `scripts/update-upstream-lock.py` resets only the affected distro libvirt local revision to `1`. Provider and virt-manager versions are not changed by upstream libvirt polling. If a Subvirt patch needs another rebuild against the same parent package, bump that distro's libvirt local revision explicitly.
+When the upstream libvirt checker detects a new parent package, `scripts/update-upstream-lock.py` resets only the affected distro target libvirt local revision to `1`. Provider and virt-manager versions are not changed by upstream libvirt polling. If a Subvirt patch needs another rebuild against the same parent package, bump that distro's libvirt local revision explicitly.
 
 ## Upstream Tracking
 
-`scripts/check-upstream.py` compares the current mirror metadata against `release/upstream-lock.json`. GitHub Actions runs this check every 8 hours, matching the local mirror sync cadence. The script exits with code `10` when a newer libvirt package is available and writes a JSON report suitable for workflow artifacts.
+`scripts/check-upstream.py` compares the current mirror metadata against `release/upstream-lock.json` for AlmaLinux 9/10 and each configured Ubuntu LTS target. Ubuntu 18.04 and 20.04 are tracked as ESM-era targets; they need source/package mirror coverage before they can be built and promoted. GitHub Actions runs this check every 8 hours, matching the local mirror sync cadence. The script exits with code `10` when a newer libvirt package is available and writes a JSON report suitable for workflow artifacts.
 
 `scripts/refresh-libvirt-source.py` creates generated libvirt build inputs from distro source packages and applies the tracked Subvirt overlays. It writes only ignored workspace paths. If patches do not apply cleanly, the candidate stops for Codex or human rebase work instead of guessing.
 
 `scripts/write-upstream-manifest.py` records the durable refresh proof in `release/upstream-manifests/`. These manifests are committed with the lock update and include the upstream source file checksums, tracked patch checksums, generated local version, and a small generated-output check. Generated source trees, downloaded source packages, binary packages, and repo metadata are still not committed.
 
 When the upstream check workflow detects a newer parent package, it refreshes generated source inputs, writes manifests, and opens or updates `automation/upstream-libvirt-refresh`. The candidate build runs from that PR branch. If the candidate build and ephemeral lab test pass, the workflow comments with the evidence URL. Scheduled runs finalize automatically by running the deterministic release-evidence gate, publishing the tested build to the public stable repository, verifying the public HTTPS metadata and package URLs, and then merging the PR. Manual `workflow_dispatch` runs default to `finalize=false`, which exercises the production path but skips public publishing and merging; set `finalize=true` only when you want the manual run to publish stable. If refresh, build, evidence validation, test, public publish, or verification fails, the PR is not merged.
+
+
+
+### AlmaLinux Targets
+
+AlmaLinux release automation is target-based. Use `SUBVIRT_ALMA_TARGETS` or the candidate workflow `alma_targets` input to select `almalinux-9`, `almalinux-10`, or `all`. Upstream check reports and lock entries use manifest keys such as `almalinux_9`; user-facing build selectors use target IDs such as `almalinux-9`. RPM artifacts are stored under `artifacts/<build-id>/alma/<major-version>` and published to matching DNF paths under `/yum/almalinux/<major-version>/`.
+
+### Ubuntu LTS Targets
+
+Ubuntu release automation is target-based. Use `SUBVIRT_UBUNTU_TARGETS` or the candidate workflow `ubuntu_targets` input to select `all`, `standard`, or a comma-separated list such as `ubuntu-22.04,ubuntu-24.04`. When refreshing sources directly, pass `--ubuntu-target ubuntu-24.04`. Upstream check reports and lock entries use manifest keys such as `ubuntu_24_04`; user-facing build selectors use target IDs such as `ubuntu-24.04`.
 
 ## Commands
 
@@ -110,7 +120,12 @@ The orchestrator calls these project-local wrapper scripts on the build host:
 
 The wrappers build repo-local images from:
 
+- `containers/ubuntu-18.04-build/Containerfile`
+- `containers/ubuntu-20.04-build/Containerfile`
+- `containers/ubuntu-22.04-build/Containerfile`
 - `containers/ubuntu-24.04-build/Containerfile`
+- `containers/ubuntu-26.04-build/Containerfile`
+- `containers/almalinux-9-build/Containerfile`
 - `containers/almalinux-10-build/Containerfile`
 
 Both libvirt package helpers run `scripts/validate-unified-diff.py` before building so malformed generated patch hunk counts fail early. The virt-manager helpers run a static source check after patching so the client-side TrueNAS storage-pool capability is validated before package build.
@@ -136,7 +151,7 @@ The bootstrap installs Podman and baseline host tools. Build dependencies belong
 
 ## Direct Artifact Test
 
-`test-artifacts` installs packages directly from the build VM artifact directory onto the two test VMs before anything is published. It copies packages from `/srv/subvirt/artifacts/<build-id>/ubuntu` and `/srv/subvirt/artifacts/<build-id>/alma` into `/tmp/subvirt-artifacts/<test-id>/...` on each test host, installs them with apt/dnf, restarts the provider and libvirt storage daemon, runs `doctor --json`, verifies the `truenas` storage backend is visible in `virsh pool-capabilities`, verifies patched virt-manager reports `truenas` pools as volume-creation capable, then runs the storage gate.
+`test-artifacts` installs packages directly from the build VM artifact directory onto the two test VMs before anything is published. Ubuntu artifacts are stored per suite under `/srv/subvirt/artifacts/<build-id>/ubuntu/<suite>` and the legacy Ubuntu test host installs the suite selected by `SUBVIRT_UBUNTU_TEST_TARGET`, defaulting to Ubuntu 24.04. Alma artifacts remain under `/srv/subvirt/artifacts/<build-id>/alma` into `/tmp/subvirt-artifacts/<test-id>/...` on each test host, installs them with apt/dnf, restarts the provider and libvirt storage daemon, runs `doctor --json`, verifies the `truenas` storage backend is visible in `virsh pool-capabilities`, verifies patched virt-manager reports `truenas` pools as volume-creation capable, then runs the storage gate.
 
 This is the fast confidence gate for the lab workflow. Staging repo tests still matter later because they verify package-manager repo behavior, signing, and dependency resolution from published metadata.
 
@@ -164,9 +179,9 @@ Apt metadata is generated by `scripts/publish-repo.py`. Yum/DNF metadata is mana
 
 The published layout is:
 
-- `https://repo.subvirt.net/apt/ubuntu/dists/noble/stable/...`
+- `https://repo.subvirt.net/apt/ubuntu/dists/{bionic,focal,jammy,noble,resolute}/stable/...`
 - `https://repo.subvirt.net/apt/ubuntu/pool/stable/...`
-- `https://repo.subvirt.net/yum/almalinux/10/stable/...`
+- `https://repo.subvirt.net/yum/almalinux/{9,10}/stable/...`
 - `https://repo.subvirt.net/keys/subvirt.gpg` for apt `Signed-By` use.
 - `https://repo.subvirt.net/keys/subvirt.asc` for DNF/RPM `gpgkey` use.
 
@@ -187,7 +202,7 @@ Website deployment is separate from package publishing. Package repository conte
 
 GitHub is not required for the current lab workflow. In the lab, `scripts/release.py` synchronizes this workspace over SSH with `rsync`. Once the project is published, GitHub Actions should become the control plane:
 
-- A scheduled workflow polls Ubuntu and AlmaLinux package metadata every 8 hours for new libvirt source versions.
+- A scheduled workflow polls every configured Ubuntu LTS target and AlmaLinux 9/10 package metadata every 8 hours for new libvirt source versions.
 - A manual `workflow_dispatch` path starts release candidates on demand.
 - A self-hosted build runner runs the same Podman wrapper scripts used locally.
 - Candidate artifacts are tested privately. Finalization publishes tested artifacts to public stable, verifies public HTTPS metadata and package URLs, then merges the upstream refresh PR.

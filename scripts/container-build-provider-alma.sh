@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-IMAGE=${SUBVIRT_ALMA_BUILD_IMAGE:-localhost/subvirt-almalinux-10-build:latest}
-CONTAINERFILE=${SUBVIRT_ALMA_CONTAINERFILE:-containers/almalinux-10-build/Containerfile}
+TARGET=${SUBVIRT_ALMA_TARGET:-almalinux-10}
 RUNTIME=${SUBVIRT_CONTAINER_RUNTIME:-podman}
 
 if ! command -v "$RUNTIME" >/dev/null 2>&1; then
@@ -10,9 +9,25 @@ if ! command -v "$RUNTIME" >/dev/null 2>&1; then
   exit 1
 fi
 
+eval "$(PYTHONPATH=scripts python3 - "$TARGET" <<'PYVARS'
+import shlex
+import sys
+from alma_targets import alma_target
+
+target = alma_target(None, target_id=sys.argv[1])
+print(f"TARGET_ID={shlex.quote(target.id)}")
+print(f"IMAGE={shlex.quote(target.image)}")
+print(f"CONTAINERFILE={shlex.quote(target.containerfile)}")
+PYVARS
+)"
+
+IMAGE=${SUBVIRT_ALMA_BUILD_IMAGE:-$IMAGE}
+CONTAINERFILE=${SUBVIRT_ALMA_CONTAINERFILE:-$CONTAINERFILE}
+
 "$RUNTIME" build -t "$IMAGE" -f "$CONTAINERFILE" .
 "$RUNTIME" run --rm \
   --security-opt label=disable \
+  -e "SUBVIRT_ALMA_TARGET=$TARGET_ID" \
   -v "$(pwd):/work" \
   -w /work \
   "$IMAGE" \

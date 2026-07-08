@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT=$(pwd)
 WORKDIR=${SUBVIRT_VIRT_MANAGER_DEB_WORKDIR:-provider-build/virt-manager-deb}
 DIST=${SUBVIRT_UBUNTU_DIST:-noble}
+TARGET=${SUBVIRT_UBUNTU_TARGET:-ubuntu-24.04}
 export DEBFULLNAME=${DEBFULLNAME:-SubVirt Builder}
 export DEBEMAIL=${DEBEMAIL:-builder@subvirt.invalid}
 
@@ -44,7 +45,7 @@ mk-build-deps -i -r -t "apt-get -y --no-install-recommends" "$SRC_DIR/debian/con
   cd "$SRC_DIR"
   "$ROOT/scripts/patch-virt-manager-truenas.py" .
   BASE_VERSION=$(dpkg-parsechangelog -S Version)
-  LOCAL_REVISION=$("$ROOT/scripts/subvirt_versions.py" ubuntu-virt-manager-revision)
+  LOCAL_REVISION=$("$ROOT/scripts/subvirt_versions.py" ubuntu-virt-manager-revision-for "$TARGET")
   dch --newversion "${BASE_VERSION}+truenas${LOCAL_REVISION}" --distribution "$DIST" --force-distribution \
     "Enable TrueNAS storage pool volume creation in virt-manager."
   "$ROOT/scripts/check-virt-manager-truenas.py" --static --source-root .

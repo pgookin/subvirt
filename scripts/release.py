@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import os
 import shlex
 import socket
 import subprocess
@@ -19,6 +20,9 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
+
+from alma_targets import AlmaTarget, alma_target, parse_target_list as parse_alma_target_list
+from ubuntu_targets import UbuntuTarget, parse_target_list, ubuntu_target
 
 
 @dataclass(frozen=True)
@@ -128,6 +132,25 @@ def artifact_dir(ctx: Context, distro: str) -> str:
     return f"{p['artifact_dir']}/{ctx.build_id}/{distro}"
 
 
+
+
+def ubuntu_build_targets(ctx: Context) -> list[UbuntuTarget]:
+    value = os.environ.get("SUBVIRT_UBUNTU_TARGETS", "ubuntu-24.04")
+    return parse_target_list(value, ctx.config)
+
+
+def alma_build_targets(ctx: Context) -> list[AlmaTarget]:
+    value = os.environ.get("SUBVIRT_ALMA_TARGETS", "almalinux-10")
+    return parse_alma_target_list(value, ctx.config)
+
+
+def ubuntu_artifact_key(target: UbuntuTarget) -> str:
+    return f"ubuntu/{target.suite}"
+
+
+def alma_artifact_key(target: AlmaTarget) -> str:
+    return f"alma/{target.version}"
+
 def test_id(ctx: Context) -> str:
     if ctx.test_id_override:
         return ctx.test_id_override.replace("/", "-")
@@ -181,64 +204,73 @@ def checkout_build(ctx: Context) -> None:
     remote_checkout(ctx, hosts(ctx)["build"])
 
 
-def build_ubuntu(ctx: Context) -> None:
+def build_ubuntu_target(ctx: Context, target: UbuntuTarget) -> None:
     host = hosts(ctx)["build"]
     p = project(ctx)
     workdir = p["workdir"]
-    out_dir = artifact_dir(ctx, "ubuntu")
+    out_dir = artifact_dir(ctx, ubuntu_artifact_key(target))
     remote_checkout(ctx, host)
     command = " && ".join([
         f"install -d -m 0755 {q(out_dir)}",
         f"cd {q(workdir)}",
-        "./scripts/container-build-ubuntu.sh",
+        f"SUBVIRT_UBUNTU_TARGET={q(target.id)} ./scripts/container-build-ubuntu.sh",
         f"find dist -maxdepth 1 -type f \\( -name '*.deb' -o -name '*.dsc' -o -name '*.changes' -o -name '*.buildinfo' -o -name '*.tar.*' \\) -exec cp -a {{}} {q(out_dir)}/ \\;",
     ])
     remote(host, command, ctx)
 
 
-def build_alma(ctx: Context) -> None:
+def build_ubuntu(ctx: Context) -> None:
+    for target in ubuntu_build_targets(ctx):
+        build_ubuntu_target(ctx, target)
+
+def build_alma_target(ctx: Context, target: AlmaTarget) -> None:
     host = hosts(ctx)["build"]
     p = project(ctx)
     workdir = p["workdir"]
-    out_dir = artifact_dir(ctx, "alma")
+    out_dir = artifact_dir(ctx, alma_artifact_key(target))
     remote_checkout(ctx, host)
     command = " && ".join([
         f"install -d -m 0755 {q(out_dir)}",
         f"cd {q(workdir)}",
-        "./scripts/container-build-alma.sh",
+        f"SUBVIRT_ALMA_TARGET={q(target.id)} ./scripts/container-build-alma.sh",
         f"find dist -maxdepth 1 -type f -name '*.rpm' -exec cp -a {{}} {q(out_dir)}/ \\;",
     ])
     remote(host, command, ctx)
 
 
+def build_alma(ctx: Context) -> None:
+    for target in alma_build_targets(ctx):
+        build_alma_target(ctx, target)
+
 def build_ubuntu_provider(ctx: Context) -> None:
     host = hosts(ctx)["build"]
     p = project(ctx)
     workdir = p["workdir"]
-    out_dir = artifact_dir(ctx, "ubuntu")
     remote_checkout(ctx, host)
-    command = " && ".join([
-        f"install -d -m 0755 {q(out_dir)}",
-        f"cd {q(workdir)}",
-        "./scripts/container-build-provider-ubuntu.sh",
-        f"find dist -maxdepth 1 -type f -name 'truenas-libvirt-provider_*.deb' -exec cp -a {{}} {q(out_dir)}/ \\;",
-    ])
-    remote(host, command, ctx)
-
+    for target in ubuntu_build_targets(ctx):
+        out_dir = artifact_dir(ctx, ubuntu_artifact_key(target))
+        command = " && ".join([
+            f"install -d -m 0755 {q(out_dir)}",
+            f"cd {q(workdir)}",
+            f"SUBVIRT_UBUNTU_TARGET={q(target.id)} ./scripts/container-build-provider-ubuntu.sh",
+            f"find dist -maxdepth 1 -type f -name 'truenas-libvirt-provider_*.deb' -exec cp -a {{}} {q(out_dir)}/ \\;",
+        ])
+        remote(host, command, ctx)
 
 def build_alma_provider(ctx: Context) -> None:
     host = hosts(ctx)["build"]
     p = project(ctx)
     workdir = p["workdir"]
-    out_dir = artifact_dir(ctx, "alma")
     remote_checkout(ctx, host)
-    command = " && ".join([
-        f"install -d -m 0755 {q(out_dir)}",
-        f"cd {q(workdir)}",
-        "./scripts/container-build-provider-alma.sh",
-        f"find dist -maxdepth 1 -type f -name 'truenas-libvirt-provider-*.rpm' -exec cp -a {{}} {q(out_dir)}/ \\;",
-    ])
-    remote(host, command, ctx)
+    for target in alma_build_targets(ctx):
+        out_dir = artifact_dir(ctx, alma_artifact_key(target))
+        command = " && ".join([
+            f"install -d -m 0755 {q(out_dir)}",
+            f"cd {q(workdir)}",
+            f"SUBVIRT_ALMA_TARGET={q(target.id)} ./scripts/container-build-provider-alma.sh",
+            f"find dist -maxdepth 1 -type f -name 'truenas-libvirt-provider-*.rpm' -exec cp -a {{}} {q(out_dir)}/ \\;",
+        ])
+        remote(host, command, ctx)
 
 
 def build_provider(ctx: Context) -> None:
@@ -289,7 +321,9 @@ def public_repo_config(ctx: Context) -> dict:
         "incoming_root": public.get("incoming_root", "/srv/subvirt/incoming"),
         "web_root": public.get("web_root", r["web_root"]),
         "apt_distribution": public.get("apt_distribution", r["apt_distribution"]),
+        "apt_distributions": public.get("apt_distributions", r.get("apt_distributions", [public.get("apt_distribution", r["apt_distribution"])])),
         "yum_distro_path": public.get("yum_distro_path", r.get("yum_distro_path", "almalinux/10")),
+        "yum_distro_paths": public.get("yum_distro_paths", r.get("yum_distro_paths", [public.get("yum_distro_path", r.get("yum_distro_path", "almalinux/10"))])),
         "base_url": public.get("base_url", "https://repo.subvirt.net").rstrip("/"),
         "gpg_name": public.get("gpg_name", "Subvirt Repository <repo@subvirt.net>"),
         "publish_script": public.get("publish_script", "/usr/local/libexec/subvirt/publish-repo.py"),
@@ -307,7 +341,7 @@ def artifact_files(ctx: Context, distro: str, suffix: str) -> list[Path]:
     root = Path("artifacts") / ctx.build_id / distro
     if not root.exists():
         return []
-    return sorted(path for path in root.iterdir() if path.is_file() and path.name.endswith(suffix))
+    return sorted(path for path in root.rglob("*") if path.is_file() and path.name.endswith(suffix))
 
 
 def validate_release_evidence(ctx: Context) -> None:
@@ -386,24 +420,32 @@ def public_stable_urls(ctx: Context) -> list[str]:
     ]
     debs = artifact_files(ctx, "ubuntu", ".deb")
     if debs:
-        suite = public["apt_distribution"]
-        urls.extend([
-            f"{base}/apt/ubuntu/dists/{suite}/Release",
-            f"{base}/apt/ubuntu/dists/{suite}/InRelease",
-            f"{base}/apt/ubuntu/dists/{suite}/stable/binary-amd64/Packages.gz",
-        ])
+        suites = sorted({path.parent.name for path in debs if path.parent.name})
+        if not suites:
+            suites = [public["apt_distribution"]]
+        for suite in suites:
+            urls.extend([
+                f"{base}/apt/ubuntu/dists/{suite}/Release",
+                f"{base}/apt/ubuntu/dists/{suite}/InRelease",
+                f"{base}/apt/ubuntu/dists/{suite}/stable/binary-amd64/Packages.gz",
+            ])
         urls.extend(f"{base}/apt/ubuntu/pool/stable/{path.name}" for path in debs)
     rpms = [
         path for path in artifact_files(ctx, "alma", ".rpm")
         if not path.name.endswith(".src.rpm") and "debuginfo" not in path.name and "debugsource" not in path.name
     ]
     if rpms:
-        yum_path = public["yum_distro_path"].strip("/")
-        urls.extend([
-            f"{base}/yum/{yum_path}/stable/repodata/repomd.xml",
-            f"{base}/yum/{yum_path}/stable/repodata/repomd.xml.asc",
-        ])
-        urls.extend(f"{base}/yum/{yum_path}/stable/{path.name}" for path in rpms)
+        default_version = public["yum_distro_path"].strip("/").split("/")[-1]
+        versions = sorted({path.parent.name for path in rpms if path.parent.name.isdigit()})
+        if not versions:
+            versions = [default_version]
+        for version in versions:
+            yum_path = f"almalinux/{version}"
+            urls.extend([
+                f"{base}/yum/{yum_path}/stable/repodata/repomd.xml",
+                f"{base}/yum/{yum_path}/stable/repodata/repomd.xml.asc",
+            ])
+        urls.extend(f"{base}/yum/almalinux/{path.parent.name if path.parent.name.isdigit() else default_version}/stable/{path.name}" for path in rpms)
     if not debs and not rpms:
         raise SystemExit(f"no public-verifiable packages found in artifacts/{ctx.build_id}")
     return urls
@@ -441,7 +483,9 @@ def write_promotion_evidence(ctx: Context) -> None:
         "promoted_at": datetime.datetime.now(datetime.UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "public_base_url": public["base_url"],
         "apt_distribution": public["apt_distribution"],
+        "apt_distributions": public["apt_distributions"],
         "yum_distro_path": public["yum_distro_path"],
+        "yum_distro_paths": public["yum_distro_paths"],
         "packages": packages,
         "verified_urls": public_stable_urls(ctx),
     }
@@ -610,7 +654,7 @@ def copy_artifacts_to_test_host(ctx: Context, distro: str, target: str, pattern:
     if is_local_host(build_host):
         run([
             *scp_args(ctx.config),
-            *sorted(str(path) for path in Path(artifact_dir(ctx, distro)).glob(pattern)),
+            *sorted(str(path) for path in Path(artifact_dir(ctx, distro)).rglob(pattern)),
             f"{target}:{stage_dir}/",
         ], ctx)
     else:
@@ -662,8 +706,10 @@ def service_validation_command() -> str:
 
 def install_ubuntu_artifacts(ctx: Context) -> None:
     host = hosts(ctx)["ubuntu_test"]
-    stage_dir = artifact_stage_dir(ctx, "ubuntu")
-    copy_artifacts_to_test_host(ctx, "ubuntu", host, "*.deb")
+    test_target = ubuntu_target(ctx.config, target_id=os.environ.get("SUBVIRT_UBUNTU_TEST_TARGET", "ubuntu-24.04"))
+    distro_key = ubuntu_artifact_key(test_target)
+    stage_dir = artifact_stage_dir(ctx, distro_key)
+    copy_artifacts_to_test_host(ctx, distro_key, host, "*.deb")
     package_filter = "packages=$(find . -maxdepth 1 -type f -name '*.deb' ! -name 'libvirt-daemon-system-sysv_*' | sort)"
     command = " && ".join([
         f"cd {q(stage_dir)}",
@@ -680,8 +726,10 @@ def install_ubuntu_artifacts(ctx: Context) -> None:
 
 def install_alma_artifacts(ctx: Context) -> None:
     host = hosts(ctx)["alma_test"]
-    stage_dir = artifact_stage_dir(ctx, "alma")
-    copy_artifacts_to_test_host(ctx, "alma", host, "*.rpm")
+    test_target = alma_target(ctx.config, target_id=os.environ.get("SUBVIRT_ALMA_TEST_TARGET", "almalinux-10"))
+    distro_key = alma_artifact_key(test_target)
+    stage_dir = artifact_stage_dir(ctx, distro_key)
+    copy_artifacts_to_test_host(ctx, distro_key, host, "*.rpm")
     package_filter = "packages=$(find . -maxdepth 1 -type f -name '*.rpm' ! -name '*.src.rpm' ! -name '*debuginfo*' ! -name '*debugsource*' | sort)"
     command = " && ".join([
         f"cd {q(stage_dir)}",

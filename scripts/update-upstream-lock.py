@@ -11,12 +11,6 @@ from typing import Any
 from subvirt_versions import validate_manifest
 
 
-DISTRO_MANIFEST_KEYS = {
-    "ubuntu": "ubuntu_24_04",
-    "alma": "almalinux_10",
-}
-
-
 def load(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
@@ -30,8 +24,8 @@ def reset_libvirt_revision(version_manifest: Path, changed_distros: set[str]) ->
     if not data:
         raise SystemExit(f"version manifest not found: {version_manifest}")
     for distro in sorted(changed_distros):
-        key = DISTRO_MANIFEST_KEYS.get(distro)
-        if key:
+        key = "almalinux_10" if distro == "alma" else distro
+        if key in data:
             data[key]["libvirt"]["local_revision"] = 1
     validate_manifest(data)
     version_manifest.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")

@@ -1,5 +1,5 @@
 {
-  "distro": "ubuntu",
+  "distro": "ubuntu_24_04",
   "generated_checks": [
     {
       "path": "build/libvirt-u24-10.0.0/debian/changelog",
@@ -17,6 +17,8 @@
     }
   ],
   "schema_version": 1,
+  "suite": "noble",
+  "support_tier": "standard",
   "source_files": [
     {
       "path": "sources/u24/libvirt_10.0.0-2ubuntu8.14.debian.tar.xz",

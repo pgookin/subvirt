@@ -44,23 +44,37 @@ jobs:
       - name: Derive candidate release inputs
         if: steps.check.outputs.updates_available == 'true'
         id: release_inputs
-        run: ./scripts/lock-release-inputs.py --report upstream-report.json --github-output "$GITHUB_OUTPUT"
+        run: ./scripts/lock-release-inputs.py --config "$SUBVIRT_RELEASE_CONFIG" --report upstream-report.json --github-output "$GITHUB_OUTPUT"
       - name: Refresh source inputs and manifests
         if: steps.check.outputs.updates_available == 'true'
         env:
           BUILD_ID: ${{ steps.release_inputs.outputs.build_id }}
           REF: ${{ github.sha }}
           UBUNTU_VERSION: ${{ steps.release_inputs.outputs.ubuntu_version }}
+          UBUNTU_VERSIONS: ${{ steps.release_inputs.outputs.ubuntu_versions }}
+          UBUNTU_TARGETS: ${{ steps.release_inputs.outputs.ubuntu_targets }}
           ALMA_VERSION: ${{ steps.release_inputs.outputs.alma_version }}
+          ALMA_VERSIONS: ${{ steps.release_inputs.outputs.alma_versions }}
+          ALMA_TARGETS: ${{ steps.release_inputs.outputs.alma_targets }}
           BUILD_UBUNTU: ${{ steps.release_inputs.outputs.build_ubuntu }}
           BUILD_ALMA: ${{ steps.release_inputs.outputs.build_alma }}
         run: |
           set -euo pipefail
           if [ "$BUILD_UBUNTU" = "true" ]; then
-            ./scripts/refresh-libvirt-source.py --config "$SUBVIRT_RELEASE_CONFIG" --distro ubuntu --version "$UBUNTU_VERSION"
+            IFS=',' read -r -a ubuntu_pairs <<< "$UBUNTU_VERSIONS"
+            for pair in "${ubuntu_pairs[@]}"; do
+              target=${pair%%=*}
+              version=${pair#*=}
+              ./scripts/refresh-libvirt-source.py --config "$SUBVIRT_RELEASE_CONFIG" --distro ubuntu --ubuntu-target "$target" --version "$version"
+            done
           fi
           if [ "$BUILD_ALMA" = "true" ]; then
-            ./scripts/refresh-libvirt-source.py --config "$SUBVIRT_RELEASE_CONFIG" --distro alma --version "$ALMA_VERSION"
+            IFS=',' read -r -a alma_pairs <<< "$ALMA_VERSIONS"
+            for pair in "${alma_pairs[@]}"; do
+              target=${pair%%=*}
+              version=${pair#*=}
+              ./scripts/refresh-libvirt-source.py --config "$SUBVIRT_RELEASE_CONFIG" --distro alma --alma-target "$target" --version "$version"
+            done
           fi
           ./scripts/write-upstream-manifest.py --report upstream-report.json --changed-only
       - name: Create upstream refresh PR
@@ -84,7 +98,11 @@ jobs:
           REF: ${{ steps.refresh_pr.outputs.pull-request-branch }}
           REFRESH_SOURCES: "true"
           UBUNTU_VERSION: ${{ steps.release_inputs.outputs.ubuntu_version }}
+          UBUNTU_VERSIONS: ${{ steps.release_inputs.outputs.ubuntu_versions }}
+          UBUNTU_TARGETS: ${{ steps.release_inputs.outputs.ubuntu_targets }}
           ALMA_VERSION: ${{ steps.release_inputs.outputs.alma_version }}
+          ALMA_VERSIONS: ${{ steps.release_inputs.outputs.alma_versions }}
+          ALMA_TARGETS: ${{ steps.release_inputs.outputs.alma_targets }}
           BUILD_UBUNTU: ${{ steps.release_inputs.outputs.build_ubuntu }}
           BUILD_ALMA: ${{ steps.release_inputs.outputs.build_alma }}
           PROMOTE_STABLE: "false"

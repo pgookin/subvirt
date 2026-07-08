@@ -5,7 +5,47 @@
     "version": "0.2.0",
     "release": 4
   },
+  "ubuntu_18_04": {
+    "libvirt": {
+      "local_revision": 1
+    },
+    "virt_manager": {
+      "local_revision": 1
+    }
+  },
+  "ubuntu_20_04": {
+    "libvirt": {
+      "local_revision": 1
+    },
+    "virt_manager": {
+      "local_revision": 1
+    }
+  },
+  "ubuntu_22_04": {
+    "libvirt": {
+      "local_revision": 1
+    },
+    "virt_manager": {
+      "local_revision": 1
+    }
+  },
   "ubuntu_24_04": {
+    "libvirt": {
+      "local_revision": 1
+    },
+    "virt_manager": {
+      "local_revision": 1
+    }
+  },
+  "ubuntu_26_04": {
+    "libvirt": {
+      "local_revision": 1
+    },
+    "virt_manager": {
+      "local_revision": 1
+    }
+  },
+  "almalinux_9": {
     "libvirt": {
       "local_revision": 1
     },

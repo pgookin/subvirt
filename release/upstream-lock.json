@@ -1,10 +1,30 @@
 {
-  "alma": {
+  "almalinux_10": {
     "package": "libvirt",
     "version": "11.10.0-12.el10_2.alma.1"
   },
-  "ubuntu": {
+  "almalinux_9": {
+    "package": "libvirt",
+    "version": ""
+  },
+  "ubuntu_18_04": {
+    "package": "libvirt0",
+    "version": ""
+  },
+  "ubuntu_20_04": {
+    "package": "libvirt0",
+    "version": ""
+  },
+  "ubuntu_22_04": {
+    "package": "libvirt0",
+    "version": ""
+  },
+  "ubuntu_24_04": {
     "package": "libvirt0",
     "version": "10.0.0-2ubuntu8.14"
+  },
+  "ubuntu_26_04": {
+    "package": "libvirt0",
+    "version": ""
   }
 }

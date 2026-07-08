@@ -15,11 +15,25 @@ on:
         required: false
         default: "false"
       ubuntu_version:
-        description: Ubuntu libvirt package version to refresh, when refresh_sources=true
+        description: Ubuntu 24.04 libvirt package version to refresh, when refresh_sources=true
         required: false
+      ubuntu_versions:
+        description: Comma-separated target=version map, for example ubuntu-24.04=10.0.0-2ubuntu8.14
+        required: false
+      ubuntu_targets:
+        description: Comma-separated Ubuntu targets to build, or all/standard
+        required: false
+        default: "ubuntu-24.04"
       alma_version:
-        description: Alma libvirt package version to refresh, when refresh_sources=true
+        description: AlmaLinux 10 libvirt package version to refresh, when refresh_sources=true
         required: false
+      alma_versions:
+        description: Comma-separated target=version map, for example almalinux-10=11.10.0-12.el10_2.alma.1
+        required: false
+      alma_targets:
+        description: Comma-separated AlmaLinux targets to build, or all
+        required: false
+        default: "almalinux-10"
       promote_stable:
         description: Publish to public stable after deterministic tests pass
         required: false
@@ -50,7 +64,11 @@ jobs:
           REF: ${{ inputs.ref || github.ref_name }}
           REFRESH_SOURCES: ${{ inputs.refresh_sources }}
           UBUNTU_VERSION: ${{ inputs.ubuntu_version }}
+          UBUNTU_VERSIONS: ${{ inputs.ubuntu_versions }}
+          UBUNTU_TARGETS: ${{ inputs.ubuntu_targets }}
           ALMA_VERSION: ${{ inputs.alma_version }}
+          ALMA_VERSIONS: ${{ inputs.alma_versions }}
+          ALMA_TARGETS: ${{ inputs.alma_targets }}
           PROMOTE_STABLE: ${{ inputs.promote_stable }}
           REQUIRE_CODEX_GATE: ${{ inputs.require_codex_gate }}
           BUILD_SCOPE: ${{ inputs.build_scope }}

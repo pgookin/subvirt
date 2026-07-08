@@ -1,0 +1,21 @@
+FROM ubuntu:26.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        debhelper \
+        devscripts \
+        dpkg-dev \
+        equivs \
+        fakeroot \
+        git \
+        patch \
+        pkg-config \
+        python3 \
+        qemu-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /work

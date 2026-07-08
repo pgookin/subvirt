@@ -113,19 +113,61 @@ def require_provider_versions(packages: list[dict[str, Any]], manifest: dict[str
             fail(f"provider rpm release {release} does not start with {expected_rpm_release}")
 
 
-def require_scope_packages(scope: str, deb_names: set[str], rpm_names: set[str]) -> None:
+
+def ubuntu_deb_names_by_suite(packages: list[dict[str, Any]]) -> dict[str, set[str]]:
+    suites: dict[str, set[str]] = {}
+    for pkg in packages:
+        if pkg.get("format") != "deb":
+            continue
+        rel = str(pkg.get("path", ""))
+        parts = Path(rel).parts
+        suite = "noble"
+        if "ubuntu" in parts:
+            index = parts.index("ubuntu")
+            if len(parts) > index + 1:
+                suite = parts[index + 1]
+        suites.setdefault(suite, set()).add(str(pkg.get("name")))
+    return suites
+
+
+def alma_rpm_names_by_version(packages: list[dict[str, Any]]) -> dict[str, set[str]]:
+    versions: dict[str, set[str]] = {}
+    for pkg in packages:
+        if pkg.get("format") != "rpm" or str(pkg.get("architecture")) == "src":
+            continue
+        rel = str(pkg.get("path", ""))
+        parts = Path(rel).parts
+        version = "10"
+        if "alma" in parts:
+            index = parts.index("alma")
+            if len(parts) > index + 1:
+                version = parts[index + 1]
+        versions.setdefault(version, set()).add(str(pkg.get("name")))
+    return versions
+
+def require_scope_packages(scope: str, deb_names: set[str], rpm_names: set[str], packages: list[dict[str, Any]]) -> None:
     if scope == "provider":
-        if deb_names != {PROVIDER_NAME}:
-            fail(f"provider build has unexpected deb packages: {sorted(deb_names)}")
-        if rpm_names != {PROVIDER_NAME}:
-            fail(f"provider build has unexpected rpm packages: {sorted(rpm_names)}")
+        for suite, names in ubuntu_deb_names_by_suite(packages).items():
+            if names != {PROVIDER_NAME}:
+                fail(f"provider build has unexpected deb packages for {suite}: {sorted(names)}")
+        for version, names in alma_rpm_names_by_version(packages).items():
+            if names != {PROVIDER_NAME}:
+                fail(f"provider build has unexpected rpm packages for AlmaLinux {version}: {sorted(names)}")
         return
-    missing_deb = FULL_UBUNTU_PACKAGES - deb_names
-    missing_rpm = FULL_ALMA_PACKAGES - rpm_names
-    if missing_deb:
-        fail(f"full build missing Ubuntu packages: {sorted(missing_deb)}")
-    if missing_rpm:
-        fail(f"full build missing Alma packages: {sorted(missing_rpm)}")
+    ubuntu_suites = ubuntu_deb_names_by_suite(packages)
+    if not ubuntu_suites:
+        fail("full build missing Ubuntu packages")
+    for suite, names in sorted(ubuntu_suites.items()):
+        missing_deb = FULL_UBUNTU_PACKAGES - names
+        if missing_deb:
+            fail(f"full build missing Ubuntu packages for {suite}: {sorted(missing_deb)}")
+    alma_versions = alma_rpm_names_by_version(packages)
+    if not alma_versions:
+        fail("full build missing Alma packages")
+    for version, names in sorted(alma_versions.items()):
+        missing_rpm = FULL_ALMA_PACKAGES - names
+        if missing_rpm:
+            fail(f"full build missing Alma packages for AlmaLinux {version}: {sorted(missing_rpm)}")
 
 
 def require_log(root: Path) -> str:
@@ -167,7 +209,7 @@ def main() -> int:
     require_package_paths(root, packages)
     scope = infer_scope(packages) if args.scope == "auto" else args.scope
     require_provider_versions(packages, manifest)
-    require_scope_packages(scope, deb_names, rpm_names)
+    require_scope_packages(scope, deb_names, rpm_names, packages)
     require_log(root)
 
     print(f"release evidence OK: build_id={args.build_id} scope={scope} packages={len(packages)}")

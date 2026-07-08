@@ -66,7 +66,8 @@ with tempfile.TemporaryDirectory() as tmpdir:
     )
     (sources / "subvirt-truenas-volume-creation.patch").write_text(patch.stdout)
 PYGENPATCH
-export SUBVIRT_ALMA_VIRT_MANAGER_REVISION=$(./scripts/subvirt_versions.py alma-virt-manager-revision)
+export SUBVIRT_ALMA_TARGET=${SUBVIRT_ALMA_TARGET:-almalinux-10}
+export SUBVIRT_ALMA_VIRT_MANAGER_REVISION=$(./scripts/subvirt_versions.py alma-virt-manager-revision-for "$SUBVIRT_ALMA_TARGET")
 python3 - "$SPEC" <<'PY'
 from pathlib import Path
 import os

@@ -15,6 +15,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from alma_targets import AlmaTarget, alma_lock_key, alma_targets
+from ubuntu_targets import UbuntuTarget, ubuntu_lock_key, ubuntu_targets
+
 UPDATE_EXIT = 10
 
 
@@ -24,6 +27,8 @@ class VersionInfo:
     package: str
     version: str
     source: str
+    suite: str = ""
+    support_tier: str = ""
 
 
 def fetch(url: str) -> bytes:
@@ -60,14 +65,15 @@ def rpm_version_key(version: str) -> list[Any]:
 def newer(distro: str, current: str, locked: str) -> bool:
     if not locked:
         return True
-    if distro == 'ubuntu':
+    if distro.startswith('ubuntu_') or distro == 'ubuntu':
         return deb_version_key(current) > deb_version_key(locked)
     return rpm_version_key(current) > rpm_version_key(locked)
 
 
-def ubuntu_candidate(config: dict[str, Any]) -> VersionInfo:
-    mirror = config['mirrors']['ubuntu'].rstrip('/')
-    suite = config.get('ubuntu_suite', 'noble')
+def ubuntu_candidate(config: dict[str, Any], target: UbuntuTarget) -> VersionInfo:
+    mirrors = config['mirrors']
+    mirror = str(mirrors.get(target.id, mirrors.get(target.suite, mirrors.get('ubuntu')))).rstrip('/')
+    suite = target.suite
     pockets = config.get('ubuntu_pockets', ['updates', 'security'])
     component = config.get('ubuntu_component', 'main')
     arch = config.get('ubuntu_arch', 'amd64')
@@ -89,12 +95,13 @@ def ubuntu_candidate(config: dict[str, Any]) -> VersionInfo:
     if not candidates:
         raise RuntimeError('libvirt0 was not found in configured Ubuntu mirrors')
     _, version, source = sorted(candidates)[-1]
-    return VersionInfo('ubuntu', 'libvirt0', version, source)
+    return VersionInfo(ubuntu_lock_key(target), 'libvirt0', version, source, suite=target.suite, support_tier=target.support_tier)
 
 
-def alma_candidate(config: dict[str, Any]) -> VersionInfo:
-    mirror = config['mirrors']['alma'].rstrip('/')
-    repo_path = config.get('alma_appstream_path', '10/AppStream/x86_64_v2/os')
+def alma_candidate(config: dict[str, Any], target: AlmaTarget) -> VersionInfo:
+    mirrors = config['mirrors']
+    mirror = str(mirrors.get(target.id, mirrors.get(target.version, mirrors.get('alma')))).rstrip('/')
+    repo_path = target.repo_path
     base = f'{mirror}/{repo_path.strip("/")}'
     repomd = ET.fromstring(fetch(f'{base}/repodata/repomd.xml'))
     repo_ns = {'r': 'http://linux.duke.edu/metadata/repo'}
@@ -113,7 +120,7 @@ def alma_candidate(config: dict[str, Any]) -> VersionInfo:
             continue
         version = package.find('m:version', common_ns).attrib
         evr = f"{version['ver']}-{version['rel']}"
-        return VersionInfo('alma', 'libvirt', evr, f'{base}/{primary_href}')
+        return VersionInfo(alma_lock_key(target), 'libvirt', evr, f'{base}/{primary_href}', suite=target.version)
     raise RuntimeError('libvirt was not found in configured Alma mirror metadata')
 
 
@@ -128,7 +135,8 @@ def main() -> int:
     lock_path = Path(args.lock)
     lock = load_json(lock_path) if lock_path.exists() else {}
 
-    found = [ubuntu_candidate(config), alma_candidate(config)]
+    found = [ubuntu_candidate(config, target) for target in ubuntu_targets({'upstream': config})]
+    found.extend(alma_candidate(config, target) for target in alma_targets({'upstream': config}))
     updates: list[dict[str, str | bool]] = []
     for item in found:
         locked = str(lock.get(item.distro, {}).get('version', ''))
@@ -139,6 +147,8 @@ def main() -> int:
             'current_version': item.version,
             'update_available': newer(item.distro, item.version, locked),
             'source': item.source,
+            'suite': item.suite,
+            'support_tier': item.support_tier,
         })
 
     result = {'updates_available': any(bool(row['update_available']) for row in updates), 'packages': updates}

@@ -21,7 +21,18 @@
     "apt_distribution": "noble",
     "apt_component": "main",
     "yum_distro_path": "almalinux/10",
-    "web_root": "/srv/repo/www"
+    "web_root": "/srv/repo/www",
+    "apt_distributions": [
+      "bionic",
+      "focal",
+      "jammy",
+      "noble",
+      "resolute"
+    ],
+    "yum_distro_paths": [
+      "almalinux/9",
+      "almalinux/10"
+    ]
   },
   "public_repo": {
     "host": "subvirt-publish@repo.subvirt.net",
@@ -31,7 +42,18 @@
     "yum_distro_path": "almalinux/10",
     "base_url": "https://repo.subvirt.net",
     "gpg_name": "Subvirt Repository <repo@subvirt.net>",
-    "publish_script": "/usr/local/libexec/subvirt/publish-repo.py"
+    "publish_script": "/usr/local/libexec/subvirt/publish-repo.py",
+    "apt_distributions": [
+      "bionic",
+      "focal",
+      "jammy",
+      "noble",
+      "resolute"
+    ],
+    "yum_distro_paths": [
+      "almalinux/9",
+      "almalinux/10"
+    ]
   },
   "tests": {
     "pool": "tank",
@@ -58,7 +80,88 @@
     ],
     "ubuntu_component": "main",
     "ubuntu_arch": "amd64",
-    "alma_appstream_path": "10/AppStream/x86_64_v2/os"
+    "alma_appstream_path": "10/AppStream/x86_64_v2/os",
+    "ubuntu_targets": [
+      {
+        "id": "ubuntu-18.04",
+        "version": "18.04",
+        "suite": "bionic",
+        "support_tier": "esm",
+        "source_dir": "u18",
+        "build_dir_prefix": "libvirt-u18",
+        "patch": "truenas-storage-backend-u24.patch",
+        "containerfile": "containers/ubuntu-18.04-build/Containerfile",
+        "image": "localhost/subvirt-ubuntu-18.04-build:latest"
+      },
+      {
+        "id": "ubuntu-20.04",
+        "version": "20.04",
+        "suite": "focal",
+        "support_tier": "esm",
+        "source_dir": "u20",
+        "build_dir_prefix": "libvirt-u20",
+        "patch": "truenas-storage-backend-u24.patch",
+        "containerfile": "containers/ubuntu-20.04-build/Containerfile",
+        "image": "localhost/subvirt-ubuntu-20.04-build:latest"
+      },
+      {
+        "id": "ubuntu-22.04",
+        "version": "22.04",
+        "suite": "jammy",
+        "support_tier": "standard",
+        "source_dir": "u22",
+        "build_dir_prefix": "libvirt-u22",
+        "patch": "truenas-storage-backend-u24.patch",
+        "containerfile": "containers/ubuntu-22.04-build/Containerfile",
+        "image": "localhost/subvirt-ubuntu-22.04-build:latest"
+      },
+      {
+        "id": "ubuntu-24.04",
+        "version": "24.04",
+        "suite": "noble",
+        "support_tier": "standard",
+        "source_dir": "u24",
+        "build_dir_prefix": "libvirt-u24",
+        "patch": "truenas-storage-backend-u24.patch",
+        "containerfile": "containers/ubuntu-24.04-build/Containerfile",
+        "image": "localhost/subvirt-ubuntu-24.04-build:latest"
+      },
+      {
+        "id": "ubuntu-26.04",
+        "version": "26.04",
+        "suite": "resolute",
+        "support_tier": "standard",
+        "source_dir": "u26",
+        "build_dir_prefix": "libvirt-u26",
+        "patch": "truenas-storage-backend-u24.patch",
+        "containerfile": "containers/ubuntu-26.04-build/Containerfile",
+        "image": "localhost/subvirt-ubuntu-26.04-build:latest"
+      }
+    ],
+    "alma_targets": [
+      {
+        "id": "almalinux-9",
+        "version": "9",
+        "source_dir": "al9",
+        "repo_path": "9/AppStream/x86_64/os",
+        "yum_distro_path": "almalinux/9",
+        "patch": "truenas-storage-backend-al10.patch",
+        "containerfile": "containers/almalinux-9-build/Containerfile",
+        "image": "localhost/subvirt-almalinux-9-build:latest",
+        "mock_config": "almalinux-9-x86_64"
+      },
+      {
+        "id": "almalinux-10",
+        "version": "10",
+        "source_dir": "al10",
+        "repo_path": "10/AppStream/x86_64_v2/os",
+        "yum_distro_path": "almalinux/10",
+        "patch": "truenas-storage-backend-al10.patch",
+        "containerfile": "containers/almalinux-10-build/Containerfile",
+        "image": "localhost/subvirt-almalinux-10-build:latest",
+        "mock_config": "almalinux-10-x86_64"
+      }
+    ]
   },
   "lab": {
     "enabled": false,

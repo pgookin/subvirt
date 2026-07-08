@@ -10,7 +10,9 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 
+from alma_targets import AlmaTarget, alma_target
 from subvirt_versions import alma_libvirt_release, load_manifest, ubuntu_libvirt_version
+from ubuntu_targets import UbuntuTarget, ubuntu_target
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,8 +39,8 @@ def file_entry(path: Path) -> dict[str, Any]:
     }
 
 
-def ubuntu_source_files(version: str) -> list[dict[str, Any]]:
-    dsc = ROOT / "sources" / "u24" / f"libvirt_{version}.dsc"
+def ubuntu_source_files(version: str, target: UbuntuTarget) -> list[dict[str, Any]]:
+    dsc = ROOT / "sources" / target.source_dir / f"libvirt_{version}.dsc"
     if not dsc.exists():
         raise SystemExit(f"missing refreshed Ubuntu source descriptor: {dsc}")
     names = {dsc.name}
@@ -56,16 +58,15 @@ def ubuntu_source_files(version: str) -> list[dict[str, Any]]:
     return files
 
 
-def alma_source_files(version: str) -> list[dict[str, Any]]:
-    src_rpm = ROOT / "sources" / "al10" / f"libvirt-{version}.src.rpm"
+def alma_source_files(version: str, target: AlmaTarget) -> list[dict[str, Any]]:
+    src_rpm = ROOT / "sources" / target.source_dir / f"libvirt-{version}.src.rpm"
     if not src_rpm.exists():
         raise SystemExit(f"missing refreshed AlmaLinux source RPM: {src_rpm}")
     return [file_entry(src_rpm)]
 
 
-def patch_files(distro: str) -> list[dict[str, Any]]:
-    patch_name = {
-        "ubuntu": "truenas-storage-backend-u24.patch",
+def patch_files(distro: str, target: UbuntuTarget | AlmaTarget | None = None) -> list[dict[str, Any]]:
+    patch_name = target.patch if target is not None else {
         "alma": "truenas-storage-backend-al10.patch",
     }[distro]
     path = ROOT / "patches" / "libvirt" / patch_name
@@ -74,9 +75,9 @@ def patch_files(distro: str) -> list[dict[str, Any]]:
     return [file_entry(path)]
 
 
-def generated_outputs(distro: str, version: str) -> list[dict[str, Any]]:
-    if distro == "ubuntu":
-        src = ROOT / "build" / f"libvirt-u24-{version.split('-', 1)[0]}"
+def generated_outputs(distro: str, version: str, target: UbuntuTarget | None = None) -> list[dict[str, Any]]:
+    if target is not None:
+        src = ROOT / "build" / f"{target.build_dir_prefix}-{version.split('-', 1)[0]}"
         expected = src / "debian" / "changelog"
     else:
         expected = ROOT / "build" / "libvirt.spec"
@@ -95,18 +96,21 @@ def sanitize_source_metadata(value: str) -> str:
     return value
 
 
-def local_version(distro: str, version: str) -> str:
+def local_version(distro: str, version: str, target: UbuntuTarget | AlmaTarget | None = None) -> str:
     manifest = load_manifest()
-    if distro == "ubuntu":
-        return ubuntu_libvirt_version(version, manifest)
+    if isinstance(target, UbuntuTarget):
+        return ubuntu_libvirt_version(version, manifest, target_id=target.id)
     parent_version = version.split("-", 1)[0]
+    if isinstance(target, AlmaTarget):
+        return f"{parent_version}-{alma_libvirt_release(version, manifest, target_id=target.id)}"
     return f"{parent_version}-{alma_libvirt_release(version, manifest)}"
 
 
 def changed_rows(report: dict[str, Any], changed_only: bool) -> list[dict[str, Any]]:
     rows = []
     for row in report.get("packages", []):
-        if row.get("distro") not in {"ubuntu", "alma"}:
+        distro = str(row.get("distro"))
+        if distro != "alma" and not distro.startswith("ubuntu_") and not distro.startswith("almalinux_"):
             continue
         if changed_only and not row.get("update_available"):
             continue
@@ -118,20 +122,28 @@ def write_manifest(row: dict[str, Any], output_dir: Path) -> Path:
     distro = str(row["distro"])
     version = str(row["current_version"])
     package = str(row["package"])
-    if distro == "ubuntu":
-        sources = ubuntu_source_files(version)
+    target = None
+    if distro.startswith("ubuntu_"):
+        target = ubuntu_target(None, target_id=distro.replace("_", "-", 1).replace("_", "."))
+        sources = ubuntu_source_files(version, target)
+    elif distro.startswith("almalinux_"):
+        target = alma_target(None, target_id=distro.replace("_", "-", 1))
+        sources = alma_source_files(version, target)
     else:
-        sources = alma_source_files(version)
+        target = alma_target(None, target_id="almalinux-10")
+        sources = alma_source_files(version, target)
     manifest = {
         "schema_version": 1,
         "distro": distro,
+        "suite": target.suite if isinstance(target, UbuntuTarget) else getattr(target, "version", ""),
+        "support_tier": target.support_tier if isinstance(target, UbuntuTarget) else "standard",
         "package": package,
         "upstream_version": version,
-        "local_version": local_version(distro, version),
+        "local_version": local_version(distro, version, target),
         "source_metadata": sanitize_source_metadata(str(row.get("source", ""))),
         "source_files": sources,
-        "patches": patch_files(distro),
-        "generated_checks": generated_outputs(distro, version),
+        "patches": patch_files(distro, target),
+        "generated_checks": generated_outputs(distro, version, target),
     }
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / f"{distro}.json"

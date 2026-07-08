@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any
 
 from subvirt_versions import DEFAULT_MANIFEST, load_manifest
+from alma_targets import DEFAULT_TARGETS as ALMA_TARGETS
+from ubuntu_targets import DEFAULT_TARGETS
 
 
 PACKAGE_SUFFIXES = {".deb", ".rpm", ".dsc", ".changes", ".buildinfo"}
@@ -110,6 +112,8 @@ def main() -> int:
         "artifact_root": root.as_posix(),
         "subvirt_version": version_manifest["subvirt_version"],
         "provider_version": f"{version_manifest['provider']['version']}-{version_manifest['provider']['release']}",
+        "ubuntu_targets": [target.__dict__ for target in DEFAULT_TARGETS],
+        "alma_targets": [target.__dict__ for target in ALMA_TARGETS],
         "packages": packages,
     }
     output = Path(args.output) if args.output else root / "release-evidence.json"

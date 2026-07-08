@@ -21,7 +21,9 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from alma_targets import AlmaTarget, alma_target
 from subvirt_versions import alma_libvirt_release, load_manifest, ubuntu_libvirt_version
+from ubuntu_targets import UbuntuTarget, ubuntu_target
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "build"
@@ -103,8 +105,8 @@ def parse_deb822(text: str) -> list[dict[str, str]]:
     return paragraphs
 
 
-def ubuntu_dist_names(upstream: dict[str, Any]) -> list[str]:
-    suite = str(upstream.get("ubuntu_suite", "noble"))
+def ubuntu_dist_names(upstream: dict[str, Any], target: UbuntuTarget) -> list[str]:
+    suite = target.suite
     pockets = upstream.get("ubuntu_pockets", ["updates", "security"])
     dist_names: list[str] = []
     for pocket in pockets:
@@ -122,13 +124,13 @@ def ubuntu_dist_names(upstream: dict[str, Any]) -> list[str]:
     return dist_names
 
 
-def find_ubuntu_source(version: str, config_path: Path) -> tuple[str, dict[str, str]]:
+def find_ubuntu_source(version: str, config_path: Path, target: UbuntuTarget) -> tuple[str, dict[str, str]]:
     upstream = upstream_config(config_path)
     mirrors = upstream.get("mirrors", {})
-    mirror = str(mirrors.get("ubuntu", "http://archive.ubuntu.com/ubuntu")).rstrip("/")
+    mirror = str(mirrors.get(target.id, mirrors.get(target.suite, mirrors.get("ubuntu", "http://archive.ubuntu.com/ubuntu")))).rstrip("/")
     component = str(upstream.get("ubuntu_component", "main"))
     errors: list[str] = []
-    for dist in ubuntu_dist_names(upstream):
+    for dist in ubuntu_dist_names(upstream, target):
         base = f"{mirror}/dists/{dist}/{component}/source/Sources"
         for suffix in (".xz", ".gz", ""):
             url = base + suffix
@@ -165,8 +167,8 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def download_ubuntu_source_files(version: str, config_path: Path, out: Path) -> Path:
-    mirror, paragraph = find_ubuntu_source(version, config_path)
+def download_ubuntu_source_files(version: str, config_path: Path, out: Path, target: UbuntuTarget) -> Path:
+    mirror, paragraph = find_ubuntu_source(version, config_path, target)
     directory = paragraph.get("Directory")
     if not directory:
         raise SystemExit("Ubuntu source paragraph did not include Directory")
@@ -190,11 +192,11 @@ def download_ubuntu_source_files(version: str, config_path: Path, out: Path) -> 
     return dsc
 
 
-def prepend_debian_changelog(src: Path, base_version: str) -> None:
+def prepend_debian_changelog(src: Path, base_version: str, target: UbuntuTarget) -> None:
     changelog = src / "debian" / "changelog"
     old = changelog.read_text(encoding="utf-8")
-    version = ubuntu_libvirt_version(base_version, load_manifest())
-    entry = f"""libvirt ({version}) noble; urgency=medium
+    version = ubuntu_libvirt_version(base_version, load_manifest(), target_id=target.id)
+    entry = f"""libvirt ({version}) {target.suite}; urgency=medium
 
   * Local build: add TrueNAS provider-backed storage pool backend.
   * Add libvirt-daemon-driver-storage-truenas binary package.
@@ -245,30 +247,34 @@ Description: Virtualization daemon TrueNAS storage driver
     control.write_text(text.replace(marker, stanza + marker, 1), encoding="utf-8")
 
 
-def refresh_ubuntu(version: str, config_path: Path) -> None:
+def refresh_ubuntu(version: str, config_path: Path, target_id: str | None = None) -> None:
     ensure_tool("dpkg-source")
     ensure_tool("patch")
-    out = SOURCES / "u24"
+    target = ubuntu_target(load_config(config_path), target_id=target_id)
+    out = SOURCES / target.source_dir
     out.mkdir(parents=True, exist_ok=True)
-    dsc = download_ubuntu_source_files(version, config_path, out)
-    generated = BUILD / f"libvirt-u24-{version.split('-')[0]}"
+    dsc = download_ubuntu_source_files(version, config_path, out, target)
+    generated = BUILD / f"{target.build_dir_prefix}-{version.split('-')[0]}"
     if generated.exists():
         shutil.rmtree(generated)
     BUILD.mkdir(exist_ok=True)
     run(["dpkg-source", "-x", str(dsc), str(generated)])
-    run(["patch", "-p1", "-i", str(PATCHES / "truenas-storage-backend-u24.patch")], cwd=generated)
+    patch_path = PATCHES / target.patch
+    if not patch_path.exists():
+        raise SystemExit(f"missing Ubuntu patch for {target.id}: {patch_path}")
+    run(["patch", "-p1", "-i", str(patch_path)], cwd=generated)
     add_ubuntu_truenas_package(generated)
-    prepend_debian_changelog(generated, version)
-    print(f"Ubuntu source ready: {generated}")
+    prepend_debian_changelog(generated, version, target)
+    print(f"Ubuntu source ready for {target.id}: {generated}")
 
 
-def rpm_source_path(version: str) -> Path:
-    candidates = sorted((SOURCES / "al10").glob(f"libvirt-{version}.src.rpm"))
-    candidates += sorted((SOURCES / "al10").glob("libvirt-*.src.rpm"))
+def rpm_source_path(version: str, target: AlmaTarget) -> Path:
+    candidates = sorted((SOURCES / target.source_dir).glob(f"libvirt-{version}.src.rpm"))
+    candidates += sorted((SOURCES / target.source_dir).glob("libvirt-*.src.rpm"))
     if candidates:
         return candidates[-1]
     ensure_tool("dnf")
-    out = SOURCES / "al10"
+    out = SOURCES / target.source_dir
     out.mkdir(parents=True, exist_ok=True)
     run(["dnf", "download", "--source", "--destdir", str(out), f"libvirt-{version}"])
     candidates = sorted(out.glob(f"libvirt-{version}.src.rpm")) or sorted(out.glob("libvirt-*.src.rpm"))
@@ -277,9 +283,9 @@ def rpm_source_path(version: str) -> Path:
     return candidates[-1]
 
 
-def spec_set_truenas_release(spec: Path, version: str) -> None:
+def spec_set_truenas_release(spec: Path, version: str, target: AlmaTarget) -> None:
     text = spec.read_text(encoding="utf-8")
-    wanted = alma_libvirt_release(version, load_manifest())
+    wanted = alma_libvirt_release(version, load_manifest(), target_id=target.id)
     text = re.sub(r"^Release:\s*.*$", f"Release: {wanted}", text, count=1, flags=re.M)
     spec.write_text(text, encoding="utf-8")
 
@@ -353,10 +359,10 @@ Subject: [PATCH] {subject}
 
 
 
-def refresh_alma_in_container(version: str) -> None:
+def refresh_alma_in_container(version: str, target: AlmaTarget) -> None:
     runtime = os.environ.get("SUBVIRT_CONTAINER_RUNTIME", "podman")
-    image = os.environ.get("SUBVIRT_ALMA_BUILD_IMAGE", "localhost/subvirt-almalinux-10-build:latest")
-    containerfile = os.environ.get("SUBVIRT_ALMA_CONTAINERFILE", "containers/almalinux-10-build/Containerfile")
+    image = os.environ.get("SUBVIRT_ALMA_BUILD_IMAGE", target.image)
+    containerfile = os.environ.get("SUBVIRT_ALMA_CONTAINERFILE", target.containerfile)
     ensure_tool(runtime)
     probe = subprocess.run([runtime, "image", "exists", image], check=False)
     if probe.returncode != 0:
@@ -369,6 +375,8 @@ def refresh_alma_in_container(version: str) -> None:
         "alma",
         "--version",
         version,
+        "--alma-target",
+        target.id,
     ])
     run([
         runtime,
@@ -387,15 +395,16 @@ def refresh_alma_in_container(version: str) -> None:
     ], cwd=ROOT)
 
 
-def refresh_alma(version: str) -> None:
+def refresh_alma(version: str, config_path: Path, target_id: str | None = None) -> None:
+    target = alma_target(load_config(config_path), target_id=target_id)
     required = ["rpm2cpio", "cpio", "patch", "dnf"]
     if os.environ.get("SUBVIRT_REFRESH_IN_CONTAINER") != "1" and any(not has_tool(tool) for tool in required):
-        refresh_alma_in_container(version)
+        refresh_alma_in_container(version, target)
         return
     ensure_tool("rpm2cpio")
     ensure_tool("cpio")
     ensure_tool("patch")
-    src_rpm = rpm_source_path(version)
+    src_rpm = rpm_source_path(version, target)
     BUILD.mkdir(exist_ok=True)
     for old in BUILD.glob("libvirt*.patch"):
         old.unlink()
@@ -407,24 +416,26 @@ def refresh_alma(version: str) -> None:
     spec = BUILD / "libvirt.spec"
     if not spec.exists():
         raise SystemExit("source RPM did not contain libvirt.spec")
-    patch_name = "truenas-storage-backend-al10.patch"
+    patch_name = target.patch
     write_git_am_patch(PATCHES / patch_name, BUILD / patch_name, "Add TrueNAS storage backend")
     spec_add_patch(spec, patch_name)
     spec_add_truenas_storage_package(spec)
-    spec_set_truenas_release(spec, version)
-    print(f"Alma source ready from {src_rpm}: {BUILD}")
+    spec_set_truenas_release(spec, version, target)
+    print(f"Alma source ready for {target.id} from {src_rpm}: {BUILD}")
 
 
 def main(argv: list[str] = sys.argv[1:]) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--distro", choices=["ubuntu", "alma"], required=True)
+    parser.add_argument("--ubuntu-target", help="Ubuntu target id, for example ubuntu-24.04")
+    parser.add_argument("--alma-target", help="AlmaLinux target id, for example almalinux-10")
     parser.add_argument("--version", required=True, help="distro package EVR without local +truenas/.truenas suffix")
     parser.add_argument("--config", default="release/release.example.json", type=Path)
     args = parser.parse_args(argv)
     if args.distro == "ubuntu":
-        refresh_ubuntu(args.version, args.config)
+        refresh_ubuntu(args.version, args.config, args.ubuntu_target)
     else:
-        refresh_alma(args.version)
+        refresh_alma(args.version, args.config, args.alma_target)
     return 0
 
 

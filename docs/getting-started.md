@@ -4,7 +4,7 @@ Subvirt adds a TrueNAS-backed storage pool type to libvirt. After setup, a
 libvirt host can create VM disks as TrueNAS zvols and attach them through iSCSI
 or NVMe-oF.
 
-This guide covers Ubuntu 24.04 and AlmaLinux 10 hosts.
+This guide covers Ubuntu LTS and AlmaLinux 9/10 hosts. Ubuntu 18.04 and 20.04 are ESM-era targets and may require Ubuntu Pro/ESM access for matching base-system updates.
 
 ## Requirements
 
@@ -18,7 +18,7 @@ This guide covers Ubuntu 24.04 and AlmaLinux 10 hosts.
 Use the same TrueNAS API endpoint and storage IP on every host that should be
 able to run or migrate guests backed by the same Subvirt storage pools.
 
-## Add the Ubuntu 24.04 Repo
+## Add the Ubuntu Repo
 
 ```sh
 sudo install -d -m 0755 /usr/share/keyrings
@@ -27,11 +27,13 @@ curl -fsSL https://repo.subvirt.net/keys/subvirt.gpg | sudo tee /usr/share/keyri
 sudo tee /etc/apt/sources.list.d/subvirt.sources >/dev/null <<'EOF'
 Types: deb
 URIs: https://repo.subvirt.net/apt/ubuntu
-Suites: noble
+Suites: VERSION_CODENAME
 Components: stable
 Signed-By: /usr/share/keyrings/subvirt-archive-keyring.gpg
 EOF
 
+CODENAME=$(. /etc/os-release && echo "$VERSION_CODENAME")
+sudo sed -i "s/VERSION_CODENAME/${CODENAME}/" /etc/apt/sources.list.d/subvirt.sources
 sudo apt update
 ```
 
@@ -49,13 +51,13 @@ sudo DEBIAN_FRONTEND=noninteractive apt install -y \
   nvme-cli
 ```
 
-## Add the AlmaLinux 10 Repo
+## Add the AlmaLinux Repo
 
 ```sh
 sudo tee /etc/yum.repos.d/subvirt.repo >/dev/null <<'EOF'
 [subvirt-stable]
 name=Subvirt stable packages
-baseurl=https://repo.subvirt.net/yum/almalinux/10/stable
+baseurl=https://repo.subvirt.net/yum/almalinux/$releasever/stable
 enabled=1
 gpgcheck=1
 repo_gpgcheck=1

@@ -35,4 +35,4 @@ if [[ -z "$SRC_DIR" ]]; then
 fi
 
 "$RUNTIME" build -t "$IMAGE" -f "$CONTAINERFILE" .
-"$RUNTIME" run --rm   --security-opt label=disable   -e "SUBVIRT_UBUNTU_TARGET=$TARGET_ID"   -e "SUBVIRT_UBUNTU_DIST=$SUITE"   -e "SUBVIRT_UBUNTU_LIBVIRT_SRC=$SRC_DIR"   -v "$(pwd):/work"   -w /work   "$IMAGE"   bash -lc 'apt-get update && mk-build-deps -i -r -t "apt-get -y --no-install-recommends" "$SUBVIRT_UBUNTU_LIBVIRT_SRC/debian/control" && rm -rf dist && mkdir -p dist && ./scripts/build-provider-deb.sh && SUBVIRT_NATIVE_BUILD=1 ./scripts/build-libvirt-deb.sh && ./scripts/build-virt-manager-deb.sh'
+"$RUNTIME" run --rm   --security-opt label=disable   -e "SUBVIRT_UBUNTU_TARGET=$TARGET_ID"   -e "SUBVIRT_UBUNTU_DIST=$SUITE"   -e "SUBVIRT_UBUNTU_LIBVIRT_SRC=$SRC_DIR"   -v "$(pwd):/work"   -w /work   "$IMAGE"   bash -lc 'apt-get update && mk-build-deps -i -r -t "apt-get -y --no-install-recommends" "$SUBVIRT_UBUNTU_LIBVIRT_SRC/debian/control" && rm -rf dist && mkdir -p dist && ./scripts/build-provider-deb.sh && SUBVIRT_NATIVE_BUILD=1 ./scripts/build-libvirt-deb.sh && if [ "$SUBVIRT_UBUNTU_TARGET" != "ubuntu-18.04" ]; then ./scripts/build-virt-manager-deb.sh; fi'

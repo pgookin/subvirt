@@ -339,6 +339,13 @@ def require_public_repo(ctx: Context) -> dict:
     return public
 
 
+def sync_public_publish_script(ctx: Context, public: dict) -> None:
+    script = public["publish_script"]
+    remote(public["host"], f"install -d -m 0755 {q(str(Path(script).parent))}", ctx)
+    rsync_to("scripts/publish-repo.py", public["host"], script, ctx)
+    remote(public["host"], f"chmod 0755 {q(script)}", ctx)
+
+
 def artifact_files(ctx: Context, distro: str, suffix: str) -> list[Path]:
     root = Path("artifacts") / ctx.build_id / distro
     if not root.exists():
@@ -358,6 +365,7 @@ def validate_release_evidence(ctx: Context) -> None:
 def promotion_preflight(ctx: Context) -> None:
     validate_release_evidence(ctx)
     public = require_public_repo(ctx)
+    sync_public_publish_script(ctx, public)
     incoming_root = public["incoming_root"].rstrip("/")
     incoming_parent = str(Path(incoming_root).parent)
     web_root = public["web_root"]
@@ -378,6 +386,7 @@ def promotion_preflight(ctx: Context) -> None:
 
 def publish_public_stable(ctx: Context) -> None:
     public = require_public_repo(ctx)
+    sync_public_publish_script(ctx, public)
     remote_base = f"{public['incoming_root'].rstrip('/')}/{ctx.build_id}"
     remote(public["host"], f"install -d -m 0755 {q(remote_base)}", ctx)
     rsync_to(f"artifacts/{ctx.build_id}/", public["host"], remote_base + "/", ctx)

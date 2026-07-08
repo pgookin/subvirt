@@ -219,9 +219,6 @@ def add_ubuntu_truenas_package(src: Path, target: UbuntuTarget) -> None:
     install_file.write_text(f"{install_path}\n", encoding="utf-8")
 
     control = debian / "control"
-    text = control.read_text(encoding="utf-8")
-    if "Package: libvirt-daemon-driver-storage-truenas\n" in text:
-        return
     stanza = """Package: libvirt-daemon-driver-storage-truenas
 Section: admin
 Architecture: linux-any
@@ -242,9 +239,19 @@ Description: Virtualization daemon TrueNAS storage driver
 
 """
     marker = "Package: libvirt-daemon-system\n"
-    if marker not in text:
-        raise SystemExit("could not find libvirt-daemon-system stanza in debian/control")
-    control.write_text(text.replace(marker, stanza + marker, 1), encoding="utf-8")
+
+    def add_stanza(path: Path) -> None:
+        text = path.read_text(encoding="utf-8")
+        if "Package: libvirt-daemon-driver-storage-truenas\n" in text:
+            return
+        if marker not in text:
+            raise SystemExit(f"could not find libvirt-daemon-system stanza in {path}")
+        path.write_text(text.replace(marker, stanza + marker, 1), encoding="utf-8")
+
+    add_stanza(control)
+    control_template = debian / "control.in"
+    if control_template.exists():
+        add_stanza(control_template)
 
 
 def refresh_ubuntu(version: str, config_path: Path, target_id: str | None = None) -> None:

@@ -351,7 +351,7 @@ def create_cloud_vm(lab: Lab, vm_key: str, offset: int) -> None:
     mgmt_mac = mac_for(lab.build_id, offset)
     storage_mac = mac_for(lab.build_id, offset + 100)
     seed = write_cloud_init(lab, name, vm_distro(lab, vm_key), mgmt_mac, storage_mac, vm["management_ip"], vm["storage_ip"])
-    run([
+    cmd = [
         "virt-install", "--connect", "qemu:///system", "--name", name,
         "--memory", str(vm["memory_mib"]), "--vcpus", str(vm["vcpus"]),
         "--import", "--os-variant", vm["os_variant"],
@@ -360,7 +360,10 @@ def create_cloud_vm(lab: Lab, vm_key: str, offset: int) -> None:
         "--network", f"network={lab.config['networks']['management']['name']},model=virtio,mac={mgmt_mac}",
         "--network", f"network={lab.config['networks']['storage']['name']},model=virtio,mac={storage_mac}",
         "--graphics", "none", "--noautoconsole",
-    ], lab.execute)
+    ]
+    if vm.get("firmware") == "efi":
+        cmd += ["--boot", "uefi"]
+    run(cmd, lab.execute)
 
 
 def create_truenas_vm(lab: Lab) -> None:

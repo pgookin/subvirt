@@ -18,6 +18,7 @@ import subprocess
 import sys
 import textwrap
 import time
+from urllib.parse import urlparse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -915,6 +916,26 @@ def repo_url(lab: Lab) -> str:
     return f"http://{listen}"
 
 
+def dns_wait_command(*urls: str) -> str:
+    hosts: list[str] = []
+    for url in urls:
+        host = urlparse(url).hostname
+        if host and any(ch.isalpha() for ch in host) and host not in hosts:
+            hosts.append(host)
+    if not hosts:
+        return ""
+    lines = ["for name in " + " ".join(q(host) for host in hosts) + "; do"]
+    lines.extend([
+        "  for attempt in $(seq 1 30); do",
+        '    getent hosts "$name" >/dev/null && break',
+        "    sleep 2",
+        "  done",
+        '  getent hosts "$name" >/dev/null',
+        "done",
+    ])
+    return "\n".join(lines) + "\n"
+
+
 def wait_for_ssh(lab: Lab, host: str, label: str, attempts: int = 60) -> None:
     clear_known_host(lab, host)
     target = f"root@{host}"
@@ -963,9 +984,11 @@ def configure_linux_repos(lab: Lab, vm_keys: Iterable[str] | None = None, mode: 
     yum_path = lab.config["repo"].get("yum_distro_path", "almalinux/10")
     stable_base_url = lab.config["repo"].get("stable_base_url", "https://repo.subvirt.net")
     if mode == "provider":
+        dns_wait = dns_wait_command(stable_base_url, url)
         ubuntu_cmd = f"""
 set -euo pipefail
 install -d -m 0755 /usr/share/keyrings /etc/apt/sources.list.d /etc/apt/preferences.d
+{dns_wait}\
 curl -fsSL {q(stable_base_url + '/keys/subvirt.gpg')} -o /usr/share/keyrings/subvirt-stable.gpg
 curl -fsSL {q(url + '/keys/subvirt.gpg')} -o /usr/share/keyrings/subvirt-staging.gpg
 cat >/etc/apt/sources.list.d/subvirt-stable.sources <<'EOF'
@@ -1009,6 +1032,7 @@ systemctl list-unit-files virtqemud.service --no-legend | grep -q . && systemctl
 """
         alma_cmd = f"""
 set -euo pipefail
+{dns_wait}\
 curl -fsSL {q(stable_base_url + '/keys/subvirt.asc')} -o /etc/pki/rpm-gpg/RPM-GPG-KEY-subvirt-stable
 curl -fsSL {q(url + '/keys/subvirt.asc')} -o /etc/pki/rpm-gpg/RPM-GPG-KEY-subvirt-staging
 cat >/etc/yum.repos.d/subvirt-stable.repo <<'EOF'
@@ -1042,9 +1066,11 @@ done
 systemctl list-unit-files virtqemud.service --no-legend | grep -q . && systemctl restart virtqemud.service || true
 """
     else:
+        dns_wait = dns_wait_command(url)
         ubuntu_cmd = f"""
 set -euo pipefail
 install -d -m 0755 /usr/share/keyrings /etc/apt/sources.list.d
+{dns_wait}\
 curl -fsSL {q(url + '/keys/subvirt.gpg')} -o /usr/share/keyrings/subvirt.gpg
 cat >/etc/apt/sources.list.d/subvirt.sources <<'EOF'
 Types: deb
@@ -1075,6 +1101,7 @@ systemctl list-unit-files virtqemud.service --no-legend | grep -q . && systemctl
 """
         alma_cmd = f"""
 set -euo pipefail
+{dns_wait}\
 curl -fsSL {q(url + '/keys/subvirt.asc')} -o /etc/pki/rpm-gpg/RPM-GPG-KEY-subvirt
 cat >/etc/yum.repos.d/subvirt-lab.repo <<'EOF'
 [subvirt-lab]

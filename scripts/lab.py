@@ -301,7 +301,7 @@ runcmd:
 ethernets:
   mgmt0:
     match:
-      macaddress: {mgmt_mac}
+      macaddress: "{mgmt_mac}"
     set-name: mgmt0
     addresses:
       - {mgmt_ip}/{mgmt['prefix']}
@@ -311,7 +311,7 @@ ethernets:
 {chr(10).join('        - ' + item for item in dns)}
   storage0:
     match:
-      macaddress: {storage_mac}
+      macaddress: "{storage_mac}"
     set-name: storage0
     addresses:
       - {storage_ip}/{lab.config['networks']['storage']['prefix']}

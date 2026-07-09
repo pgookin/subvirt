@@ -53,12 +53,16 @@ def deb_version_key(version: str) -> list[Any]:
 
 
 def rpm_version_key(version: str) -> list[Any]:
-    parts = re.split(r'([0-9]+)', version)
     key: list[Any] = []
-    for part in parts:
-        if not part:
-            continue
-        key.append(int(part) if part.isdigit() else part)
+    for part in re.findall(r'[A-Za-z]+|[0-9]+|~|\^', version):
+        if part == '~':
+            key.append((-1, ''))
+        elif part == '^':
+            key.append((0, ''))
+        elif part.isdigit():
+            key.append((2, int(part.lstrip('0') or '0')))
+        else:
+            key.append((1, part))
     return key
 
 
@@ -115,13 +119,17 @@ def alma_candidate(config: dict[str, Any], target: AlmaTarget) -> VersionInfo:
     primary = gzip.decompress(fetch(f'{base}/{primary_href}'))
     root = ET.fromstring(primary)
     common_ns = {'m': 'http://linux.duke.edu/metadata/common'}
+    candidates: list[tuple[list[Any], str]] = []
     for package in root.findall('m:package', common_ns):
         if package.findtext('m:name', namespaces=common_ns) != 'libvirt':
             continue
         version = package.find('m:version', common_ns).attrib
         evr = f"{version['ver']}-{version['rel']}"
-        return VersionInfo(alma_lock_key(target), 'libvirt', evr, f'{base}/{primary_href}', suite=target.version)
-    raise RuntimeError('libvirt was not found in configured Alma mirror metadata')
+        candidates.append((rpm_version_key(evr), evr))
+    if not candidates:
+        raise RuntimeError('libvirt was not found in configured Alma mirror metadata')
+    _, evr = sorted(candidates)[-1]
+    return VersionInfo(alma_lock_key(target), 'libvirt', evr, f'{base}/{primary_href}', suite=target.version)
 
 
 def main() -> int:

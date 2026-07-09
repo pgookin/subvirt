@@ -1108,6 +1108,7 @@ systemctl list-unit-files virtqemud.service --no-legend | grep -q . && systemctl
                 ensure_bionic_hwe_kernel(lab, key)
                 command = command.replace(" libvirt-daemon-driver-qemu", "")
                 command = command.replace(" virt-manager virtinst", "")
+                command = command.replace('if ! modprobe nvme-tcp 2>/dev/null; then\n  DEBIAN_FRONTEND=noninteractive apt-get install -y "linux-modules-extra-$(uname -r)"\n  modprobe nvme-tcp\nfi', "modprobe nvme-tcp")
             ssh(f"root@{host}", command, lab)
         elif distro == "alma":
             vm_yum = vm_yum_path(lab, key)

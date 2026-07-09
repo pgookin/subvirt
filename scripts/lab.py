@@ -935,6 +935,26 @@ def wait_for_linux_vms(lab: Lab, vm_keys: Iterable[str]) -> None:
         ssh(f"root@{host}", "cloud-init status --wait || true", lab)
 
 
+def ensure_bionic_hwe_kernel(lab: Lab, key: str) -> None:
+    host = lab.config["vms"][key]["management_ip"]
+    command = r"""
+set -euo pipefail
+if uname -r | grep -q '^5\.4\.' && modprobe nvme-tcp; then
+  exit 0
+fi
+apt-get update
+DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold linux-generic-hwe-18.04 linux-modules-extra-virtual-hwe-18.04
+nohup systemctl reboot >/dev/null 2>&1 &
+"""
+    try:
+        ssh(f"root@{host}", command, lab)
+    except subprocess.CalledProcessError:
+        pass
+    time.sleep(10)
+    wait_for_ssh(lab, host, key, attempts=90)
+    ssh(f"root@{host}", "uname -r && modprobe nvme-tcp", lab)
+
+
 def configure_linux_repos(lab: Lab, vm_keys: Iterable[str] | None = None, mode: str = "full") -> None:
     vm_keys = list(vm_keys or linux_vm_keys(lab, published_distros(lab)))
     url = repo_url(lab)
@@ -1085,6 +1105,7 @@ systemctl list-unit-files virtqemud.service --no-legend | grep -q . && systemctl
             command = ubuntu_cmd.replace(f"Suites: {suite}", f"Suites: {vm_suite}")
             command = command.replace(f"dists/{suite}", f"dists/{vm_suite}")
             if vm_suite == "bionic":
+                ensure_bionic_hwe_kernel(lab, key)
                 command = command.replace(" libvirt-daemon-driver-qemu", "")
                 command = command.replace(" virt-manager virtinst", "")
             ssh(f"root@{host}", command, lab)

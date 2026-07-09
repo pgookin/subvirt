@@ -18,6 +18,14 @@ from pathlib import Path
 
 AR_MAGIC = b"!<arch>\n"
 
+UBUNTU_SUITE_VERSION_PREFIXES = {
+    "bionic": "4.0.0-",
+    "focal": "6.0.0-",
+    "jammy": "8.0.0-",
+    "noble": "10.0.0-",
+    "resolute": "12.0.0-",
+}
+
 
 def run(argv: list[str]) -> None:
     print("+ " + " ".join(argv))
@@ -91,6 +99,7 @@ def publish_apt(incoming: Path, web_root: Path, suite: str, component: str) -> b
 
     for deb in debs:
         shutil.copyfile(deb, pool / deb.name)
+    prune_apt_pool(pool, debs, suite)
 
     paragraphs: list[str] = []
     for deb in sorted(pool.glob("*.deb")):
@@ -118,6 +127,33 @@ def publish_apt(incoming: Path, web_root: Path, suite: str, component: str) -> b
     write_release(web_root / "apt" / "ubuntu", suite, components)
     return True
 
+
+
+def prune_apt_pool(pool: Path, incoming_debs: list[Path], suite: str) -> None:
+    expected_prefix = UBUNTU_SUITE_VERSION_PREFIXES.get(suite)
+    if expected_prefix:
+        for deb in pool.glob("*.deb"):
+            fields = deb_control(deb)
+            if fields.get("Package") == "truenas-libvirt-provider":
+                continue
+            if not fields.get("Version", "").startswith(expected_prefix):
+                deb.unlink()
+        return
+
+    incoming_controls = [deb_control(deb) for deb in incoming_debs]
+    full_publish_versions = {
+        fields.get("Version", "")
+        for fields in incoming_controls
+        if fields.get("Package") != "truenas-libvirt-provider" and fields.get("Version")
+    }
+    if not full_publish_versions:
+        return
+    for deb in pool.glob("*.deb"):
+        fields = deb_control(deb)
+        if fields.get("Package") == "truenas-libvirt-provider":
+            continue
+        if fields.get("Version") not in full_publish_versions:
+            deb.unlink()
 
 def release_entry(root: Path, path: Path) -> tuple[int, str, str, str]:
     rel = path.relative_to(root).as_posix()

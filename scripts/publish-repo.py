@@ -9,6 +9,7 @@ import gzip
 import hashlib
 import io
 import os
+import re
 import shutil
 import subprocess
 import tarfile
@@ -183,11 +184,31 @@ def publish_yum(incoming: Path, web_root: Path, distro_path: str, channel: str, 
             sign_cmd += ["--define", f"_gpg_path {os.environ['GNUPGHOME']}"]
         sign_cmd += ["--define", f"_gpg_name {gpg_name}", "--addsign", str(dst)]
         run(sign_cmd)
+    prune_incompatible_yum_rpms(target, distro_path)
     run(["createrepo_c", "--update", str(target)])
     repomd = target / "repodata" / "repomd.xml"
     run(["gpg", "--batch", "--yes", "--detach-sign", "--armor", str(repomd)])
     return True
 
+
+
+def prune_incompatible_yum_rpms(target: Path, distro_path: str) -> None:
+    """Remove RPMs for other EL major versions from an Alma repository.
+
+    Stable repos are append-style so a provider-only release can update just the
+    provider package without removing the matching libvirt package set. If a bad
+    publish ever mixes Alma major versions, however, DNF can see incompatible
+    providers in one repo and fail dependency solving. Keep only RPMs that match
+    the major version implied by the repo path.
+    """
+    version = distro_path.strip("/").split("/")[-1]
+    if not version.isdigit():
+        return
+    el_version = re.compile(r"\.el(\d+)(?:[_\.-]|$)")
+    for rpm in target.glob("*.rpm"):
+        match = el_version.search(rpm.name)
+        if match and match.group(1) != version:
+            rpm.unlink()
 
 
 def publish_yum_all(incoming: Path, web_root: Path, default_distro_path: str, channel: str, gpg_name: str) -> bool:

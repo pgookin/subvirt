@@ -1085,6 +1085,7 @@ systemctl list-unit-files virtqemud.service --no-legend | grep -q . && systemctl
             command = ubuntu_cmd.replace(f"Suites: {suite}", f"Suites: {vm_suite}")
             command = command.replace(f"dists/{suite}", f"dists/{vm_suite}")
             if vm_suite == "bionic":
+                command = command.replace(" libvirt-daemon-driver-qemu", "")
                 command = command.replace(" virt-manager virtinst", "")
             ssh(f"root@{host}", command, lab)
         elif distro == "alma":

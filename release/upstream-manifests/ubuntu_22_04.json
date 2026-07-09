@@ -1,0 +1,41 @@
+{
+  "distro": "ubuntu_22_04",
+  "generated_checks": [
+    {
+      "path": "build/libvirt-u22-8.0.0/debian/changelog",
+      "sha256": "36b544e233b6617d2770d57801528f54ab0e4bbde8ccc2ade1dbc0fd643d3f41",
+      "size": 532645
+    }
+  ],
+  "local_version": "8.0.0-1ubuntu7.17+truenas1",
+  "package": "libvirt0",
+  "patches": [
+    {
+      "path": "patches/libvirt/truenas-storage-backend-u22.patch",
+      "sha256": "3e4d102b465eceba63d311a212783bdaf416c3a32d4238ff1383860317bbb398",
+      "size": 28370
+    }
+  ],
+  "schema_version": 1,
+  "source_files": [
+    {
+      "path": "sources/u22/libvirt_8.0.0-1ubuntu7.17.debian.tar.xz",
+      "sha256": "43af6e003d6d4e987cce605243cae5e0e5cacd47006ecedb62ebe4e3927a323e",
+      "size": 185312
+    },
+    {
+      "path": "sources/u22/libvirt_8.0.0-1ubuntu7.17.dsc",
+      "sha256": "f71c9e4170c7cde5710bacd9703522e9c91b2de29109e174cc56be892a7e43dd",
+      "size": 4738
+    },
+    {
+      "path": "sources/u22/libvirt_8.0.0.orig.tar.xz",
+      "sha256": "51e6e8ff04bafe96d7e314b213dcd41fb1163d9b4f0f75cdab01e663728f4cf6",
+      "size": 8860124
+    }
+  ],
+  "source_metadata": "configured-mirror:ubuntu/dists/jammy-updates/main/binary-amd64/Packages.xz",
+  "suite": "jammy",
+  "support_tier": "standard",
+  "upstream_version": "8.0.0-1ubuntu7.17"
+}

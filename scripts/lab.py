@@ -475,6 +475,40 @@ def cleanup_stale_ephemeral_domains(lab: Lab) -> None:
         destroy_domain(lab, name)
 
 
+def cleanup_current_ephemeral_domains(lab: Lab) -> None:
+    prefix = f"{lab.config['lab']['name_prefix']}-{lab.build_id}-"
+    persistent_truenas = persistent_truenas_name(lab)
+    for name in domain_names(lab):
+        if name.startswith(prefix) and name != persistent_truenas:
+            print(f"removing current ephemeral lab domain {name}")
+            destroy_domain(lab, name)
+
+
+def remove_run_dir(lab: Lab) -> None:
+    if not lab.run_dir.exists() or not lab.execute:
+        print(f"+ rm -rf {lab.run_dir}")
+        return
+    try:
+        shutil.rmtree(lab.run_dir)
+    except OSError as exc:
+        print(f"failed to remove {lab.run_dir} directly: {exc}; retrying with sudo")
+        run_shell(f"sudo rm -rf -- {q(lab.run_dir)}", True)
+        if lab.run_dir.exists():
+            raise SystemExit(f"failed to remove stale lab run directory {lab.run_dir}")
+
+
+def prepare_run_dir(lab: Lab) -> None:
+    cleanup_stale_ephemeral_domains(lab)
+    cleanup_current_ephemeral_domains(lab)
+    remove_run_dir(lab)
+    if lab.execute:
+        lab.run_dir.mkdir(parents=True, exist_ok=True)
+        lab.web_root.mkdir(parents=True, exist_ok=True)
+    else:
+        print(f"+ mkdir -p {lab.run_dir}")
+        print(f"+ mkdir -p {lab.web_root}")
+
+
 def ensure_persistent_truenas(lab: Lab) -> None:
     ensure_dirs(lab)
     ensure_networks(lab)
@@ -598,7 +632,7 @@ def doctor_truenas(lab: Lab) -> None:
 
 def create_linux_lab(lab: Lab) -> None:
     ensure_dirs(lab)
-    cleanup_stale_ephemeral_domains(lab)
+    prepare_run_dir(lab)
     ensure_networks(lab)
     create_cloud_vm(lab, "ubuntu", 10)
     create_cloud_vm(lab, "alma", 20)

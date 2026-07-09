@@ -1,0 +1,41 @@
+{
+  "distro": "ubuntu_18_04",
+  "generated_checks": [
+    {
+      "path": "build/libvirt-u18-4.0.0/debian/changelog",
+      "sha256": "7b482666467575ae2b3050e763047a50016d32c82e5d35f5508aca623b5af580",
+      "size": 395836
+    }
+  ],
+  "local_version": "4.0.0-1ubuntu8.21+truenas1",
+  "package": "libvirt0",
+  "patches": [
+    {
+      "path": "patches/libvirt/truenas-storage-backend-u18.patch",
+      "sha256": "797213d7a788e180efddc58a4108c3c4065568e5f2e5bf3b0f31643375831c72",
+      "size": 26511
+    }
+  ],
+  "schema_version": 1,
+  "source_files": [
+    {
+      "path": "sources/u18/libvirt_4.0.0-1ubuntu8.21.debian.tar.xz",
+      "sha256": "ae52384a706443c6e3d1a7958c92f180e9241e12e0be263e29c44a738ad01d57",
+      "size": 198828
+    },
+    {
+      "path": "sources/u18/libvirt_4.0.0-1ubuntu8.21.dsc",
+      "sha256": "a45c9ce0d50bc9a6a3df8ab18308679e11bf8c0eb41bb8a2d845edcf3c97b9f2",
+      "size": 4861
+    },
+    {
+      "path": "sources/u18/libvirt_4.0.0.orig.tar.xz",
+      "sha256": "e9e8ca1a696b70bca572f367e35807a9800a59aec5158b95fe7f4802a5fadfc8",
+      "size": 15002248
+    }
+  ],
+  "source_metadata": "configured-mirror:ubuntu/dists/bionic-updates/main/binary-amd64/Packages.xz",
+  "suite": "bionic",
+  "support_tier": "esm",
+  "upstream_version": "4.0.0-1ubuntu8.21"
+}

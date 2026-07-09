@@ -1,0 +1,31 @@
+{
+  "distro": "almalinux_9",
+  "generated_checks": [
+    {
+      "path": "build/libvirt.spec",
+      "sha256": "3248ef0886568db2c2ed276707e003040eb2ae528fb7ed6641c24ec7801c9e8d",
+      "size": 135195
+    }
+  ],
+  "local_version": "11.10.0-12.1.el9_8.alma.1.truenas1",
+  "package": "libvirt",
+  "patches": [
+    {
+      "path": "patches/libvirt/truenas-storage-backend-al10.patch",
+      "sha256": "6a915dcc39c9e6bd6efbec82b6304a10dabce70aa35144a3a325ada8fbcba4ee",
+      "size": 27767
+    }
+  ],
+  "schema_version": 1,
+  "source_files": [
+    {
+      "path": "sources/al9/libvirt-11.10.0-12.1.el9_8.alma.1.src.rpm",
+      "sha256": "412bdc23557c6274030c248fa54c1b533e3f01178263fa7cbc1c4d2c204ec500",
+      "size": 10433465
+    }
+  ],
+  "source_metadata": "configured-mirror:almalinux/9/AppStream/x86_64/os/repodata/92e1c8ff98084db08beccd938a2158255985c0eecbaff10fbcffd2d86a6bb458-primary.xml.gz",
+  "suite": "9",
+  "support_tier": "standard",
+  "upstream_version": "11.10.0-12.1.el9_8.alma.1"
+}

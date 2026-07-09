@@ -9,12 +9,23 @@ import re
 from pathlib import Path
 from typing import Any
 
-from alma_targets import alma_lock_key, alma_targets
-from ubuntu_targets import ubuntu_lock_key, ubuntu_targets
+from alma_targets import alma_lock_key, alma_target, alma_targets
+from ubuntu_targets import ubuntu_lock_key, ubuntu_target, ubuntu_targets
 
 
 def sanitize(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "-", value).strip("-")
+
+
+def add_unique(items: list[str], item: str) -> None:
+    if item not in items:
+        items.append(item)
+
+
+def include_lab_targets(config: dict[str, Any], ubuntu: list[str], alma: list[str]) -> None:
+    if ubuntu or alma:
+        add_unique(ubuntu, ubuntu_target(config, target_id="ubuntu-24.04").id)
+        add_unique(alma, alma_target(config, target_id="almalinux-10").id)
 
 
 def changed_targets(report_path: Path | None, config: dict[str, Any], lock: dict[str, Any] | None = None) -> tuple[list[str], list[str]]:
@@ -59,6 +70,7 @@ def main() -> int:
     lock: dict[str, Any] = json.loads(args.lock.read_text(encoding="utf-8"))
     config: dict[str, Any] = json.loads(args.config.read_text(encoding="utf-8")) if args.config.exists() else {}
     ubuntu_target_ids, alma_target_ids = changed_targets(args.report, config, lock)
+    include_lab_targets(config, ubuntu_target_ids, alma_target_ids)
     build_ubuntu = bool(ubuntu_target_ids)
     build_alma = bool(alma_target_ids)
     ubuntu_versions = []

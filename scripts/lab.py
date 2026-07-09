@@ -250,6 +250,50 @@ def clear_known_host(lab: Lab, host: str) -> None:
         print(f"+ ssh-keygen -R {host} -f {known_hosts}")
 
 
+def os_mirror_url(lab: Lab, distro: str) -> str:
+    mirrors = lab.config.get("lab", {}).get("mirrors", {})
+    defaults = {
+        "ubuntu": "http://10.1.0.121/ubuntu",
+        "alma": "http://10.1.0.121/almalinux",
+    }
+    return str(mirrors.get(distro, defaults[distro])).rstrip("/")
+
+
+def cloud_init_repo_bootcmd(lab: Lab, distro: str) -> str:
+    if distro == "ubuntu":
+        mirror = q(os_mirror_url(lab, "ubuntu"))
+        return f"""bootcmd:
+  - |
+    set -eu
+    mirror={mirror}
+    if [ -f /etc/apt/sources.list ]; then
+      sed -i -E "s|https?://(archive|security|cloud\\.archive|ports)\\.ubuntu\\.com/ubuntu|$mirror|g" /etc/apt/sources.list
+    fi
+    if ls /etc/apt/sources.list.d/*.sources >/dev/null 2>&1; then
+      sed -i -E "s|^URIs: .*$|URIs: $mirror|g" /etc/apt/sources.list.d/*.sources
+    fi
+"""
+    if distro == "alma":
+        mirror = q(os_mirror_url(lab, "alma"))
+        return f"""bootcmd:
+  - |
+    set -eu
+    mirror={mirror}
+    if ls /etc/yum.repos.d/*.repo >/dev/null 2>&1; then
+      sed -i -E 's|^mirrorlist=|#mirrorlist=|; s|^metalink=|#metalink=|' /etc/yum.repos.d/*.repo
+      sed -i -E "s|^# ?baseurl=https?://repo\\.almalinux\\.org/almalinux|baseurl=$mirror|; s|^baseurl=https?://repo\\.almalinux\\.org/almalinux|baseurl=$mirror|" /etc/yum.repos.d/*.repo
+    fi
+"""
+    return ""
+
+
+def ubuntu_refresh_command() -> str:
+    return """DEBIAN_FRONTEND=noninteractive apt-get full-upgrade -y --allow-downgrades -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold
+if command -v snap >/dev/null 2>&1; then
+  snap refresh
+fi"""
+
+
 def write_cloud_init(lab: Lab, name: str, distro: str, mgmt_mac: str, storage_mac: str, mgmt_ip: str, storage_ip: str) -> Path:
     keys = "\n".join(f"      - {key}" for key in ssh_keys(lab.config))
     package_update = "true" if distro == "ubuntu" else "false"
@@ -263,7 +307,7 @@ hostname: {name}
 manage_etc_hosts: true
 disable_root: false
 ssh_pwauth: false
-package_update: {package_update}
+{cloud_init_repo_bootcmd(lab, distro)}package_update: {package_update}
 packages:
 {chr(10).join('  - ' + p for p in packages)}
 users:
@@ -1015,6 +1059,7 @@ EOF
 apt-get clean
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get --fix-broken install -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold
+{ubuntu_refresh_command()}
 DEBIAN_FRONTEND=noninteractive apt-get install -y --allow-downgrades -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold truenas-libvirt-provider libvirt-daemon-system libvirt-daemon-driver-qemu libvirt-daemon-driver-storage-truenas virt-manager virtinst open-iscsi nvme-cli qemu-utils
 if ! modprobe nvme-tcp 2>/dev/null; then
   DEBIAN_FRONTEND=noninteractive apt-get install -y "linux-modules-extra-$(uname -r)"
@@ -1083,7 +1128,7 @@ EOF
 apt-get clean
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get --fix-broken install -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold
-DEBIAN_FRONTEND=noninteractive apt-get full-upgrade -y --allow-downgrades -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold
+{ubuntu_refresh_command()}
 DEBIAN_FRONTEND=noninteractive apt-get install -y --allow-downgrades truenas-libvirt-provider libvirt-daemon-system libvirt-daemon-driver-qemu libvirt-daemon-driver-storage-truenas virt-manager virtinst open-iscsi nvme-cli qemu-utils
 if ! modprobe nvme-tcp 2>/dev/null; then
   DEBIAN_FRONTEND=noninteractive apt-get install -y "linux-modules-extra-$(uname -r)"

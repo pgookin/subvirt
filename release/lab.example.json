@@ -10,6 +10,10 @@
       "1.1.1.1",
       "8.8.8.8"
     ],
+    "mirrors": {
+      "ubuntu": "http://10.1.0.121/ubuntu",
+      "alma": "http://10.1.0.121/almalinux"
+    },
     "ssh_authorized_key_files": [
       "~/.ssh/virt.pub",
       "~/.ssh/id_rsa.pub"

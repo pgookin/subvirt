@@ -152,6 +152,38 @@ def alma_rpm_names_by_version(packages: list[dict[str, Any]]) -> dict[str, set[s
         versions.setdefault(version, set()).add(str(pkg.get("name")))
     return versions
 
+
+SUITE_TO_TARGET = {
+    "bionic": "ubuntu-18.04",
+    "focal": "ubuntu-20.04",
+    "jammy": "ubuntu-22.04",
+    "noble": "ubuntu-24.04",
+    "resolute": "ubuntu-26.04",
+}
+
+
+def package_target_ids(packages: list[dict[str, Any]]) -> set[str]:
+    targets: set[str] = set()
+    for suite in ubuntu_deb_names_by_suite(packages):
+        targets.add(SUITE_TO_TARGET.get(suite, f"ubuntu-{suite}"))
+    for version in alma_rpm_names_by_version(packages):
+        targets.add(f"almalinux-{version}")
+    return targets
+
+
+def require_runtime_targets(scope: str, evidence: dict[str, Any], packages: list[dict[str, Any]]) -> None:
+    runtime = evidence.get("runtime_targets")
+    if not isinstance(runtime, dict):
+        fail("release evidence missing runtime_targets")
+    storage = set(str(item) for item in runtime.get("storage", []))
+    if not storage:
+        fail("release evidence contains no runtime-tested storage targets")
+    expected = package_target_ids(packages)
+    if scope in {"provider", "full"}:
+        missing = expected - storage
+        if missing:
+            fail(f"runtime storage validation missing targets: {sorted(missing)}")
+
 def require_scope_packages(scope: str, deb_names: set[str], rpm_names: set[str], packages: list[dict[str, Any]]) -> None:
     if scope == "provider":
         for suite, names in ubuntu_deb_names_by_suite(packages).items():
@@ -218,6 +250,7 @@ def main() -> int:
     require_provider_versions(packages, manifest)
     require_scope_packages(scope, deb_names, rpm_names, packages)
     require_log(root)
+    require_runtime_targets(scope, evidence, packages)
 
     print(f"release evidence OK: build_id={args.build_id} scope={scope} packages={len(packages)}")
     return 0

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -94,6 +95,17 @@ def package_entry(path: Path) -> dict[str, Any]:
     return entry
 
 
+def runtime_targets(root: Path) -> dict[str, list[str]]:
+    log = root / "candidate-release.log"
+    if not log.is_file():
+        return {"storage": [], "migration": []}
+    text = log.read_text(encoding="utf-8", errors="replace")
+    return {
+        "storage": sorted(set(re.findall(r"Storage target ([A-Za-z0-9_.-]+) passed", text))),
+        "migration": sorted(set(re.findall(r"Migration target ([A-Za-z0-9_.-]+) passed", text))),
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--build-id", required=True)
@@ -114,6 +126,7 @@ def main() -> int:
         "provider_version": f"{version_manifest['provider']['version']}-{version_manifest['provider']['release']}",
         "ubuntu_targets": [target.__dict__ for target in DEFAULT_TARGETS],
         "alma_targets": [target.__dict__ for target in ALMA_TARGETS],
+        "runtime_targets": runtime_targets(root),
         "packages": packages,
     }
     output = Path(args.output) if args.output else root / "release-evidence.json"

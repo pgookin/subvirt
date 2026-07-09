@@ -508,10 +508,10 @@ MIGRATION_SSH_IDENTITY_REMOTE = "/root/.ssh/subvirt_migration_key"
 MIGRATION_SSH_KNOWN_HOSTS_REMOTE = "/root/.ssh/subvirt_known_hosts"
 
 
-def storage_base_args(ctx: Context) -> str:
+def storage_base_args(ctx: Context, build_id: str | None = None) -> str:
     t = tests(ctx)
     args = "--build-id {build_id} --iscsi-pool {iscsi_pool} --nvmeof-pool {nvmeof_pool} --iscsi-pool-xml {iscsi_xml} --nvmeof-pool-xml {nvmeof_xml} --migration-domain {domain}".format(
-        build_id=q(test_id(ctx)),
+        build_id=q(build_id or test_id(ctx)),
         iscsi_pool=q(t["iscsi_pool"]),
         nvmeof_pool=q(t["nvmeof_pool"]),
         iscsi_xml=q(t["iscsi_pool_xml"]),
@@ -560,57 +560,66 @@ def sync_migration_ssh_material(ctx: Context, host: str) -> None:
         remote(host, f"chmod 0644 {q(MIGRATION_SSH_KNOWN_HOSTS_REMOTE)}", ctx)
 
 
-def run_storage_gate(ctx: Context) -> None:
-    p = project(ctx)
+def storage_target_command(ctx: Context, action: str, role: str, peer: str, build_id: str) -> str:
+    return " && ".join([
+        f"cd {q(project(ctx)['workdir'])}",
+        f"./scripts/test-storage.py --action {q(action)} --role {q(role)} --peer {q(peer)} {storage_base_args(ctx, build_id)}",
+    ])
+
+
+def run_storage_target_gate(ctx: Context, target: dict) -> None:
+    target_id = str(target["id"])
+    host = str(target["host"])
+    peer = str(target["peer"])
+    build_id = f"{test_id(ctx)}-{target_id.replace('.', '-')}"
+    for setup_host in dict.fromkeys([host, peer]):
+        remote_checkout(ctx, setup_host)
+        sync_storage_pool_xml(ctx, setup_host)
+        sync_migration_ssh_material(ctx, setup_host)
+    print(f"Runtime storage target {target_id} start")
+    remote(host, storage_target_command(ctx, "create", "ubuntu", peer, build_id), ctx)
+    remote(peer, storage_target_command(ctx, "create", "alma", host, build_id), ctx)
+    remote(host, storage_target_command(ctx, "check-peer", "ubuntu", peer, build_id), ctx)
+    remote(peer, storage_target_command(ctx, "check-peer", "alma", host, build_id), ctx)
+    remote(host, storage_target_command(ctx, "delete-check", "ubuntu", peer, build_id), ctx)
+    remote(peer, storage_target_command(ctx, "delete-check", "alma", host, build_id), ctx)
+    if target.get("migration", tests(ctx).get("run_migration", False)):
+        remote(host, storage_target_command(ctx, "migrate", "ubuntu", peer, build_id), ctx)
+        print(f"Migration target {target_id} passed")
+    print(f"Storage target {target_id} passed")
+
+
+def run_legacy_storage_gate(ctx: Context) -> None:
     ubuntu = hosts(ctx)["ubuntu_test"]
     alma = hosts(ctx)["alma_test"]
-    migration_source = hosts(ctx).get("migration_source", ubuntu)
     migration_target = hosts(ctx).get("migration_target", alma)
     run_migration = tests(ctx).get("run_migration", bool(tests(ctx).get("migration_domain")))
-    setup_hosts = [ubuntu, alma]
-    if run_migration:
-        setup_hosts.extend([migration_source, migration_target])
-    for host in dict.fromkeys(setup_hosts):
+    for host in dict.fromkeys([ubuntu, alma, migration_target] if run_migration else [ubuntu, alma]):
         remote_checkout(ctx, host)
         sync_storage_pool_xml(ctx, host)
         sync_migration_ssh_material(ctx, host)
-    base = storage_base_args(ctx)
-    ubuntu_create = " && ".join([
-        f"cd {q(p['workdir'])}",
-        f"./scripts/test-storage.py --action create --role ubuntu --peer {q(alma)} {base}",
-    ])
-    alma_create = " && ".join([
-        f"cd {q(p['workdir'])}",
-        f"./scripts/test-storage.py --action create --role alma --peer {q(ubuntu)} {base}",
-    ])
-    ubuntu_check = " && ".join([
-        f"cd {q(p['workdir'])}",
-        f"./scripts/test-storage.py --action check-peer --role ubuntu --peer {q(alma)} {base}",
-    ])
-    alma_check = " && ".join([
-        f"cd {q(p['workdir'])}",
-        f"./scripts/test-storage.py --action check-peer --role alma --peer {q(ubuntu)} {base}",
-    ])
-    ubuntu_delete_check = " && ".join([
-        f"cd {q(p['workdir'])}",
-        f"./scripts/test-storage.py --action delete-check --role ubuntu --peer {q(alma)} {base}",
-    ])
-    alma_delete_check = " && ".join([
-        f"cd {q(p['workdir'])}",
-        f"./scripts/test-storage.py --action delete-check --role alma --peer {q(ubuntu)} {base}",
-    ])
-    migration = " && ".join([
-        f"cd {q(p['workdir'])}",
-        f"./scripts/test-storage.py --action migrate --role ubuntu --peer {q(migration_target)} {base}",
-    ])
-    remote(ubuntu, ubuntu_create, ctx)
-    remote(alma, alma_create, ctx)
-    remote(ubuntu, ubuntu_check, ctx)
-    remote(alma, alma_check, ctx)
-    remote(ubuntu, ubuntu_delete_check, ctx)
-    remote(alma, alma_delete_check, ctx)
+    build_id = test_id(ctx)
+    remote(ubuntu, storage_target_command(ctx, "create", "ubuntu", alma, build_id), ctx)
+    remote(alma, storage_target_command(ctx, "create", "alma", ubuntu, build_id), ctx)
+    remote(ubuntu, storage_target_command(ctx, "check-peer", "ubuntu", alma, build_id), ctx)
+    remote(alma, storage_target_command(ctx, "check-peer", "alma", ubuntu, build_id), ctx)
+    remote(ubuntu, storage_target_command(ctx, "delete-check", "ubuntu", alma, build_id), ctx)
+    remote(alma, storage_target_command(ctx, "delete-check", "alma", ubuntu, build_id), ctx)
     if run_migration:
-        remote(migration_source, migration, ctx)
+        remote(ubuntu, storage_target_command(ctx, "migrate", "ubuntu", migration_target, build_id), ctx)
+        print("Migration target ubuntu-24.04 passed")
+    print("Storage target ubuntu-24.04 passed")
+    print("Storage target almalinux-10 passed")
+
+
+def run_storage_gate(ctx: Context) -> None:
+    targets = tests(ctx).get("storage_targets") or []
+    if targets:
+        print("Runtime storage targets: " + ",".join(str(target.get("id")) for target in targets))
+        for target in targets:
+            run_storage_target_gate(ctx, target)
+        return
+    run_legacy_storage_gate(ctx)
 
 
 
@@ -632,8 +641,14 @@ def test_ephemeral_lab(ctx: Context) -> None:
         "set -e",
         f"cd {q(workdir)}",
         "set +e",
+        f"SUBVIRT_UBUNTU_TARGETS={q(os.environ.get('SUBVIRT_UBUNTU_TARGETS', 'ubuntu-24.04'))} "
+        f"SUBVIRT_ALMA_TARGETS={q(os.environ.get('SUBVIRT_ALMA_TARGETS', 'almalinux-10'))} "
+        f"SUBVIRT_LAB_TARGETS={q(os.environ.get('SUBVIRT_LAB_TARGETS', 'selected'))} "
         f"./scripts/lab.py {create_command} --config {q(config_path)} --build-id {q(ctx.build_id)} --execute && "
         f"./scripts/lab.py publish-repo --config {q(config_path)} --build-id {q(ctx.build_id)} --artifacts {q(artifacts)} --execute && "
+        f"SUBVIRT_UBUNTU_TARGETS={q(os.environ.get('SUBVIRT_UBUNTU_TARGETS', 'ubuntu-24.04'))} "
+        f"SUBVIRT_ALMA_TARGETS={q(os.environ.get('SUBVIRT_ALMA_TARGETS', 'almalinux-10'))} "
+        f"SUBVIRT_LAB_TARGETS={q(os.environ.get('SUBVIRT_LAB_TARGETS', 'selected'))} "
         f"./scripts/lab.py test-repo --config {q(config_path)} --build-id {q(ctx.build_id)} --mode {q(ctx.lab_mode)} --execute",
         "rc=$?",
         f"if test $rc -eq 0; then ./scripts/lab.py destroy --config {q(config_path)} --build-id {q(ctx.build_id)} --execute; "

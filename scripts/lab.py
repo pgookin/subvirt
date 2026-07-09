@@ -349,7 +349,7 @@ def create_cloud_vm(lab: Lab, vm_key: str, offset: int) -> None:
     if not disk.exists() or not lab.execute:
         run(["qemu-img", "create", "-f", "qcow2", "-F", "qcow2", "-b", str(base), str(disk), vm["disk_size"]], lab.execute)
     mgmt_mac = mac_for(lab.build_id, offset)
-    storage_mac = mac_for(lab.build_id, offset + 100)
+    storage_mac = mac_for(lab.build_id, offset + 1000)
     seed = write_cloud_init(lab, name, vm_distro(lab, vm_key), mgmt_mac, storage_mac, vm["management_ip"], vm["storage_ip"])
     cmd = [
         "virt-install", "--connect", "qemu:///system", "--name", name,
@@ -634,10 +634,8 @@ def create_linux_lab(lab: Lab) -> None:
     ensure_dirs(lab)
     prepare_run_dir(lab)
     ensure_networks(lab)
-    create_cloud_vm(lab, "ubuntu", 10)
-    create_cloud_vm(lab, "alma", 20)
-    if lab.config["tests"].get("run_migration", False) and "ubuntu_migration_peer" in lab.config["vms"]:
-        create_cloud_vm(lab, "ubuntu_migration_peer", 40)
+    for index, key in enumerate(linux_vm_keys(lab, ["ubuntu", "alma"]), start=1):
+        create_cloud_vm(lab, key, index * 10)
     write_run_release_config(lab)
 
 
@@ -689,6 +687,29 @@ def artifact_distros(path: Path) -> list[str]:
     return distros
 
 
+def artifact_target_ids(path: Path) -> list[str]:
+    targets: list[str] = []
+    ubuntu = path / "ubuntu"
+    if ubuntu.exists():
+        for suite_dir in sorted(item for item in ubuntu.iterdir() if item.is_dir()):
+            if any(suite_dir.glob("*.deb")):
+                target = SUITE_TO_UBUNTU_ID.get(suite_dir.name)
+                if target and target not in targets:
+                    targets.append(target)
+        if any(ubuntu.glob("*.deb")) and "ubuntu-24.04" not in targets:
+            targets.append("ubuntu-24.04")
+    alma = path / "alma"
+    if alma.exists():
+        for version_dir in sorted(item for item in alma.iterdir() if item.is_dir()):
+            if any(version_dir.glob("*.rpm")):
+                target = VERSION_TO_ALMA_ID.get(version_dir.name)
+                if target and target not in targets:
+                    targets.append(target)
+        if any(alma.glob("*.rpm")) and "almalinux-10" not in targets:
+            targets.append("almalinux-10")
+    return targets
+
+
 def published_distros(lab: Lab) -> list[str]:
     marker = published_marker(lab)
     if marker.exists():
@@ -696,15 +717,144 @@ def published_distros(lab: Lab) -> list[str]:
     return ["ubuntu", "alma"]
 
 
+def published_target_ids(lab: Lab) -> list[str]:
+    marker = published_marker(lab)
+    if marker.exists():
+        return json.loads(marker.read_text(encoding="utf-8")).get("target_ids", [])
+    return []
+
+
 def vm_distro(lab: Lab, key: str) -> str:
     return str(lab.config["vms"][key].get("distro", key))
 
 
+UBUNTU_ALIASES = {
+    "ubuntu-18.04": {"ubuntu-18.04", "18.04", "bionic"},
+    "ubuntu-20.04": {"ubuntu-20.04", "20.04", "focal"},
+    "ubuntu-22.04": {"ubuntu-22.04", "22.04", "jammy"},
+    "ubuntu-24.04": {"ubuntu-24.04", "24.04", "noble"},
+    "ubuntu-26.04": {"ubuntu-26.04", "26.04", "resolute"},
+}
+ALMA_ALIASES = {
+    "almalinux-9": {"almalinux-9", "9"},
+    "almalinux-10": {"almalinux-10", "10"},
+}
+SUITE_TO_UBUNTU_ID = {alias: target for target, aliases in UBUNTU_ALIASES.items() for alias in aliases}
+VERSION_TO_ALMA_ID = {alias: target for target, aliases in ALMA_ALIASES.items() for alias in aliases}
+
+
+def vm_target_id(lab: Lab, key: str) -> str:
+    vm = lab.config["vms"][key]
+    if vm.get("target_id"):
+        return str(vm["target_id"])
+    distro = vm_distro(lab, key)
+    if distro == "ubuntu":
+        suite = str(vm.get("suite", lab.config["repo"].get("apt_suite", "noble")))
+        return SUITE_TO_UBUNTU_ID.get(suite, "ubuntu-24.04")
+    if distro == "alma":
+        version = str(vm.get("version", lab.config["repo"].get("yum_distro_path", "almalinux/10").strip("/").split("/")[-1]))
+        return VERSION_TO_ALMA_ID.get(version, "almalinux-10")
+    return key
+
+
+def vm_apt_suite(lab: Lab, key: str) -> str:
+    vm = lab.config["vms"][key]
+    if vm.get("suite"):
+        return str(vm["suite"])
+    target = vm_target_id(lab, key)
+    for alias, target_id in SUITE_TO_UBUNTU_ID.items():
+        if target_id == target and not alias.startswith(("ubuntu-", "1", "2")):
+            return alias
+    return lab.config["repo"].get("apt_suite", "noble")
+
+
+def vm_yum_path(lab: Lab, key: str) -> str:
+    vm = lab.config["vms"][key]
+    if vm.get("yum_distro_path"):
+        return str(vm["yum_distro_path"])
+    target = vm_target_id(lab, key)
+    version = target.rsplit("-", 1)[-1] if target.startswith("almalinux-") else "10"
+    return f"almalinux/{version}"
+
+
+def is_linux_vm(lab: Lab, key: str) -> bool:
+    return vm_distro(lab, key) in {"ubuntu", "alma"}
+
+
+def is_migration_peer(lab: Lab, key: str) -> bool:
+    vm = lab.config["vms"][key]
+    return bool(vm.get("migration_peer_for")) or key.endswith("_migration_peer")
+
+
+def linux_vm_candidate_keys(lab: Lab) -> list[str]:
+    return [key for key in lab.config["vms"] if key != "truenas" and is_linux_vm(lab, key)]
+
+
+def primary_linux_vm_keys(lab: Lab, keys: Iterable[str]) -> list[str]:
+    return [key for key in keys if not is_migration_peer(lab, key)]
+
+
+def selected_tokens_for_family(family: str) -> set[str]:
+    env_name = "SUBVIRT_UBUNTU_TARGETS" if family == "ubuntu" else "SUBVIRT_ALMA_TARGETS"
+    value = os.environ.get(env_name, "").strip()
+    if not value:
+        return set()
+    tokens = {item.strip() for item in value.split(",") if item.strip()}
+    if "all" in tokens:
+        aliases = UBUNTU_ALIASES if family == "ubuntu" else ALMA_ALIASES
+        return set(aliases)
+    if family == "ubuntu" and "standard" in tokens:
+        tokens.remove("standard")
+        tokens.update({"ubuntu-22.04", "ubuntu-24.04", "ubuntu-26.04"})
+    if family == "ubuntu" and "esm" in tokens:
+        tokens.remove("esm")
+        tokens.update({"ubuntu-18.04", "ubuntu-20.04"})
+    return tokens
+
+
+def target_selected(lab: Lab, key: str, tokens: set[str]) -> bool:
+    target = vm_target_id(lab, key)
+    aliases = UBUNTU_ALIASES.get(target) or ALMA_ALIASES.get(target) or {target}
+    return bool(tokens.intersection(aliases | {target}))
+
+
+def baseline_linux_vm_keys(lab: Lab) -> list[str]:
+    return [key for key in ("ubuntu", "alma") if key in lab.config["vms"] and is_linux_vm(lab, key)]
+
+
+def selected_primary_linux_vm_keys(lab: Lab, package_distros: Iterable[str] | None = None) -> list[str]:
+    available = set(package_distros or {"ubuntu", "alma"})
+    candidates = [key for key in linux_vm_candidate_keys(lab) if not is_migration_peer(lab, key) and vm_distro(lab, key) in available]
+    mode = os.environ.get("SUBVIRT_LAB_TARGETS", "selected").strip() or "selected"
+    if mode == "all":
+        return candidates
+    if mode == "baseline":
+        return [key for key in baseline_linux_vm_keys(lab) if key in candidates]
+    tokens = selected_tokens_for_family("ubuntu") | selected_tokens_for_family("alma")
+    selected = [key for key in candidates if target_selected(lab, key, tokens)]
+    if selected:
+        return selected
+    return [key for key in baseline_linux_vm_keys(lab) if key in candidates]
+
+
+def migration_peer_key_for(lab: Lab, primary_key: str) -> str | None:
+    primary_target = vm_target_id(lab, primary_key)
+    for key in linux_vm_candidate_keys(lab):
+        if key == primary_key:
+            continue
+        vm = lab.config["vms"][key]
+        peer_for = vm.get("migration_peer_for")
+        if peer_for in {primary_key, primary_target} or (is_migration_peer(lab, key) and vm_target_id(lab, key) == primary_target):
+            return key
+    return None
+
+
 def linux_vm_keys(lab: Lab, package_distros: Iterable[str]) -> list[str]:
-    available = set(package_distros)
-    keys = [key for key in ("ubuntu", "alma") if key in lab.config["vms"] and vm_distro(lab, key) in available]
-    if lab.config["tests"].get("run_migration", False) and "ubuntu_migration_peer" in lab.config["vms"] and "ubuntu" in available:
-        keys.append("ubuntu_migration_peer")
+    keys = selected_primary_linux_vm_keys(lab, package_distros)
+    for key in list(keys):
+        peer = migration_peer_key_for(lab, key)
+        if peer and peer not in keys:
+            keys.append(peer)
     return keys
 
 
@@ -735,10 +885,10 @@ def publish_repo(lab: Lab, artifacts: Path) -> None:
     if lab.execute:
         current.unlink(missing_ok=True)
         current.symlink_to(lab.web_root)
-        published_marker(lab).write_text(json.dumps({"distros": distros}, indent=2) + "\n", encoding="utf-8")
+        published_marker(lab).write_text(json.dumps({"distros": distros, "target_ids": artifact_target_ids(artifacts)}, indent=2) + "\n", encoding="utf-8")
     else:
         print(f"+ ln -sfn {lab.web_root} {current}")
-        print(f"+ write {published_marker(lab)} with distros={distros}")
+        print(f"+ write {published_marker(lab)} with distros={distros} target_ids={artifact_target_ids(artifacts)}")
 
 
 def ssh_known_host_name(host: str) -> str:
@@ -931,9 +1081,16 @@ systemctl list-unit-files virtqemud.service --no-legend | grep -q . && systemctl
         host = lab.config["vms"][key]["management_ip"]
         distro = vm_distro(lab, key)
         if distro == "ubuntu":
-            ssh(f"root@{host}", ubuntu_cmd, lab)
+            vm_suite = vm_apt_suite(lab, key)
+            command = ubuntu_cmd.replace(f"Suites: {suite}", f"Suites: {vm_suite}")
+            command = command.replace(f"dists/{suite}", f"dists/{vm_suite}")
+            if vm_suite == "bionic":
+                command = command.replace(" virt-manager virtinst", "")
+            ssh(f"root@{host}", command, lab)
         elif distro == "alma":
-            ssh(f"root@{host}", alma_cmd, lab)
+            vm_yum = vm_yum_path(lab, key)
+            command = alma_cmd.replace(f"/yum/{yum_path}/", f"/yum/{vm_yum}/")
+            ssh(f"root@{host}", command, lab)
         else:
             raise SystemExit(f"unsupported Linux VM distro {distro!r} for {key}")
         wait_for_ssh(lab, host, key)
@@ -1021,10 +1178,13 @@ def test_repo(lab: Lab, mode: str) -> None:
         raise SystemExit("truenas.api_key is required for lab candidate validation; set it in the local lab config")
     doctor_truenas(lab)
     configure_provider_configs(lab, vm_keys)
-    if {"ubuntu", "alma"}.issubset(set(distros)):
+    release_config = load_config(lab.run_dir / "release.json") if lab.execute else {"tests": {"storage_targets": []}}
+    if lab.execute and release_config.get("tests", {}).get("storage_targets"):
+        run([str(ROOT / "scripts" / "release.py"), "test-staging", "--config", str(lab.run_dir / "release.json"), "--build-id", lab.build_id, "--execute"], lab.execute)
+    elif not lab.execute:
         run([str(ROOT / "scripts" / "release.py"), "test-staging", "--config", str(lab.run_dir / "release.json"), "--build-id", lab.build_id, "--execute"], lab.execute)
     else:
-        print(f"partial lab repo test completed for distros={distros}; storage gate requires ubuntu and alma artifacts")
+        print(f"partial lab repo test completed for distros={distros}; no storage target pairs were configured")
 
 
 def configure_truenas(lab: Lab) -> None:
@@ -1043,11 +1203,37 @@ def write_run_release_config(lab: Lab) -> None:
     release["project"]["source_mode"] = "rsync"
     release["project"]["source_path"] = str(ROOT)
     release["project"].setdefault("rsync_excludes", [".git", "build", "dist", "provider-build", ".venv-vnc"])
-    release["hosts"]["ubuntu_test"] = f"root@{lab.config['vms']['ubuntu']['management_ip']}"
-    release["hosts"]["alma_test"] = f"root@{lab.config['vms']['alma']['management_ip']}"
-    release["hosts"]["migration_source"] = release["hosts"]["ubuntu_test"]
-    if "ubuntu_migration_peer" in lab.config["vms"]:
-        release["hosts"]["migration_target"] = f"root@{lab.config['vms']['ubuntu_migration_peer']['management_ip']}"
+    selected_keys = selected_primary_linux_vm_keys(lab, published_distros(lab))
+    ubuntu_keys = [key for key in selected_keys if vm_distro(lab, key) == "ubuntu"]
+    alma_keys = [key for key in selected_keys if vm_distro(lab, key) == "alma"]
+    if ubuntu_keys:
+        release["hosts"]["ubuntu_test"] = f"root@{lab.config['vms'][ubuntu_keys[0]]['management_ip']}"
+    if alma_keys:
+        release["hosts"]["alma_test"] = f"root@{lab.config['vms'][alma_keys[0]]['management_ip']}"
+    if ubuntu_keys:
+        release["hosts"]["migration_source"] = release["hosts"]["ubuntu_test"]
+    first_peer = migration_peer_key_for(lab, ubuntu_keys[0]) if ubuntu_keys else None
+    if first_peer:
+        release["hosts"]["migration_target"] = f"root@{lab.config['vms'][first_peer]['management_ip']}"
+    elif alma_keys:
+        release["hosts"]["migration_target"] = f"root@{lab.config['vms'][alma_keys[0]]['management_ip']}"
+
+    storage_targets = []
+    for key in selected_keys:
+        peer = migration_peer_key_for(lab, key)
+        if peer is None:
+            alternatives = [candidate for candidate in selected_keys if candidate != key]
+            peer = alternatives[0] if alternatives else None
+        if peer is None:
+            continue
+        storage_targets.append({
+            "id": vm_target_id(lab, key),
+            "name": key,
+            "host": f"root@{lab.config['vms'][key]['management_ip']}",
+            "peer": f"root@{lab.config['vms'][peer]['management_ip']}",
+            "migration": bool(tests.get("run_migration", False)) and vm_target_id(lab, peer) == vm_target_id(lab, key),
+        })
+    release["tests"]["storage_targets"] = storage_targets
     release["tests"]["iscsi_pool"] = tests["iscsi_pool_name"]
     release["tests"]["nvmeof_pool"] = tests["nvmeof_pool_name"]
     release["tests"]["iscsi_pool_xml"] = str(lab.run_dir / "iscsi-pool.xml")
@@ -1090,7 +1276,7 @@ def write_run_release_config(lab: Lab) -> None:
 
 def destroy_lab(lab: Lab) -> None:
     prefix = f"{lab.config['lab']['name_prefix']}-{lab.build_id}-"
-    for key in ("ubuntu", "alma", "ubuntu_migration_peer", "truenas"):
+    for key in [*linux_vm_candidate_keys(lab), "truenas"]:
         if key not in lab.config["vms"]:
             continue
         name = prefix + lab.config["vms"][key]["name"]

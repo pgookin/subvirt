@@ -1,0 +1,41 @@
+{
+  "distro": "ubuntu_20_04",
+  "generated_checks": [
+    {
+      "path": "build/libvirt-u20-6.0.0/debian/changelog",
+      "sha256": "044d5f048f1934bc6995738277c3eff7a21ffd5c34de3de31394480a803613c4",
+      "size": 469129
+    }
+  ],
+  "local_version": "6.0.0-0ubuntu8.20+truenas1",
+  "package": "libvirt0",
+  "patches": [
+    {
+      "path": "patches/libvirt/truenas-storage-backend-u20.patch",
+      "sha256": "63f7162d4e38a1aa3e4345a7c2c70367552a15010be661ec2198834b774e4429",
+      "size": 27172
+    }
+  ],
+  "schema_version": 1,
+  "source_files": [
+    {
+      "path": "sources/u20/libvirt_6.0.0-0ubuntu8.20.debian.tar.xz",
+      "sha256": "40eef8a108ae85c90f5fa2b121929316d6ba0f272519b4ebe16cb7037429b920",
+      "size": 237868
+    },
+    {
+      "path": "sources/u20/libvirt_6.0.0-0ubuntu8.20.dsc",
+      "sha256": "97e2d60f06c5d6d89db53ed31acea2b03548b21b97ac645fa5d353be6cc60021",
+      "size": 5335
+    },
+    {
+      "path": "sources/u20/libvirt_6.0.0.orig.tar.xz",
+      "sha256": "e6bb642389bbace3252c462bbb2e9b1749dd64315b9873a424f36c7f8d357f76",
+      "size": 8686092
+    }
+  ],
+  "source_metadata": "configured-mirror:ubuntu/dists/focal-updates/main/binary-amd64/Packages.xz",
+  "suite": "focal",
+  "support_tier": "esm",
+  "upstream_version": "6.0.0-0ubuntu8.20"
+}

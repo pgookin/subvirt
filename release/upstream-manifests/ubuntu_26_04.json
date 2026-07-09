@@ -1,0 +1,46 @@
+{
+  "distro": "ubuntu_26_04",
+  "generated_checks": [
+    {
+      "path": "build/libvirt-u26-12.0.0/debian/changelog",
+      "sha256": "535ea582ed0bc8a7923180a5f0a02e48af6a09ac44de8e6bd1f6b7bc2769f9a1",
+      "size": 223698
+    }
+  ],
+  "local_version": "12.0.0-1ubuntu5.1+truenas1",
+  "package": "libvirt0",
+  "patches": [
+    {
+      "path": "patches/libvirt/truenas-storage-backend-u26.patch",
+      "sha256": "dc127738d6da1bead148205d883111f3002adf35c9bb9b4c326e2632eecdd16a",
+      "size": 28424
+    }
+  ],
+  "schema_version": 1,
+  "source_files": [
+    {
+      "path": "sources/u26/libvirt_12.0.0-1ubuntu5.1.debian.tar.xz",
+      "sha256": "d28618fd9d0d25905da11c023f39484c5c76eecff35ff0bfcf3d7b40a29b7d3e",
+      "size": 116756
+    },
+    {
+      "path": "sources/u26/libvirt_12.0.0-1ubuntu5.1.dsc",
+      "sha256": "763ac15db7737b37fdbbb6990721ae350a69b6fb251c709c323a259d2caabe0f",
+      "size": 7312
+    },
+    {
+      "path": "sources/u26/libvirt_12.0.0.orig.tar.xz",
+      "sha256": "bf4e680019c04c45b557dd4a7ef59e952887f74e3c47044fe035a961fb624726",
+      "size": 10272864
+    },
+    {
+      "path": "sources/u26/libvirt_12.0.0.orig.tar.xz.asc",
+      "sha256": "55957ea518a28eaa66a81be2a1aa23b9ceef9efd87f85d57a4e6a9ae89a95f69",
+      "size": 833
+    }
+  ],
+  "source_metadata": "configured-mirror:ubuntu/dists/resolute-updates/main/binary-amd64/Packages.xz",
+  "suite": "resolute",
+  "support_tier": "standard",
+  "upstream_version": "12.0.0-1ubuntu5.1"
+}

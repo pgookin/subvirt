@@ -5,19 +5,19 @@
   },
   "almalinux_9": {
     "package": "libvirt",
-    "version": ""
+    "version": "11.10.0-12.1.el9_8.alma.1"
   },
   "ubuntu_18_04": {
     "package": "libvirt0",
-    "version": ""
+    "version": "4.0.0-1ubuntu8.21"
   },
   "ubuntu_20_04": {
     "package": "libvirt0",
-    "version": ""
+    "version": "6.0.0-0ubuntu8.20"
   },
   "ubuntu_22_04": {
     "package": "libvirt0",
-    "version": ""
+    "version": "8.0.0-1ubuntu7.17"
   },
   "ubuntu_24_04": {
     "package": "libvirt0",
@@ -25,6 +25,6 @@
   },
   "ubuntu_26_04": {
     "package": "libvirt0",
-    "version": ""
+    "version": "12.0.0-1ubuntu5.1"
   }
 }

@@ -8,6 +8,7 @@ import email.utils
 import gzip
 import hashlib
 import io
+import json
 import os
 import re
 import shutil
@@ -85,6 +86,57 @@ def checksum(path: Path, algorithm: str) -> str:
     return h.hexdigest()
 
 
+def archive_packages(incoming: Path, archive_root: Path, build_id: str) -> None:
+    files = [
+        path for path in sorted(incoming.rglob("*"))
+        if path.is_file()
+        and (
+            path.name.endswith(".deb")
+            or (
+                path.name.endswith(".rpm")
+                and not path.name.endswith(".src.rpm")
+                and "debuginfo" not in path.name
+                and "debugsource" not in path.name
+            )
+        )
+    ]
+    if not files:
+        return
+
+    target = archive_root / "builds" / build_id / "artifacts"
+    manifest_path = archive_root / "builds" / build_id / "manifest.json"
+    entries = []
+    for src in files:
+        rel = src.relative_to(incoming)
+        dst = target / rel
+        entries.append({
+            "path": f"artifacts/{rel.as_posix()}",
+            "size": src.stat().st_size,
+            "sha256": checksum(src, "sha256"),
+        })
+        if dst.exists() and checksum(dst, "sha256") != checksum(src, "sha256"):
+            raise RuntimeError(f"archive conflict: {dst} already exists with different content")
+
+    manifest = {
+        "build_id": build_id,
+        "packages": sorted(entries, key=lambda item: str(item["path"])),
+    }
+    if manifest_path.exists():
+        existing = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if existing != manifest:
+            raise RuntimeError(f"archive conflict: {manifest_path} already exists with different content")
+        return
+
+    target.mkdir(parents=True, exist_ok=True)
+    for src in files:
+        rel = src.relative_to(incoming)
+        dst = target / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        if not dst.exists():
+            shutil.copyfile(src, dst)
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
 def publish_apt(incoming: Path, web_root: Path, suite: str, component: str) -> bool:
     if not incoming.exists():
         return False
@@ -130,29 +182,35 @@ def publish_apt(incoming: Path, web_root: Path, suite: str, component: str) -> b
 
 
 def prune_apt_pool(pool: Path, incoming_debs: list[Path], suite: str) -> None:
+    incoming_controls = [deb_control(deb) for deb in incoming_debs]
+    incoming_names = {
+        fields.get("Package", "")
+        for fields in incoming_controls
+        if fields.get("Package")
+    }
+    incoming_versions_by_name = {
+        (fields.get("Package", ""), fields.get("Version", ""))
+        for fields in incoming_controls
+        if fields.get("Package") and fields.get("Version")
+    }
     expected_prefix = UBUNTU_SUITE_VERSION_PREFIXES.get(suite)
     if expected_prefix:
         for deb in pool.glob("*.deb"):
             fields = deb_control(deb)
-            if fields.get("Package") == "truenas-libvirt-provider":
+            package = fields.get("Package", "")
+            version = fields.get("Version", "")
+            if package.startswith("libvirt") and not version.startswith(expected_prefix):
+                deb.unlink()
                 continue
-            if not fields.get("Version", "").startswith(expected_prefix):
+            if package in incoming_names and (package, version) not in incoming_versions_by_name:
                 deb.unlink()
         return
 
-    incoming_controls = [deb_control(deb) for deb in incoming_debs]
-    full_publish_versions = {
-        fields.get("Version", "")
-        for fields in incoming_controls
-        if fields.get("Package") != "truenas-libvirt-provider" and fields.get("Version")
-    }
-    if not full_publish_versions:
-        return
     for deb in pool.glob("*.deb"):
         fields = deb_control(deb)
-        if fields.get("Package") == "truenas-libvirt-provider":
-            continue
-        if fields.get("Version") not in full_publish_versions:
+        package = fields.get("Package", "")
+        version = fields.get("Version", "")
+        if package in incoming_names and (package, version) not in incoming_versions_by_name:
             deb.unlink()
 
 def release_entry(root: Path, path: Path) -> tuple[int, str, str, str]:
@@ -220,7 +278,7 @@ def publish_yum(incoming: Path, web_root: Path, distro_path: str, channel: str, 
             sign_cmd += ["--define", f"_gpg_path {os.environ['GNUPGHOME']}"]
         sign_cmd += ["--define", f"_gpg_name {gpg_name}", "--addsign", str(dst)]
         run(sign_cmd)
-    prune_incompatible_yum_rpms(target, distro_path)
+    prune_yum_rpms(target, rpms, distro_path)
     run(["createrepo_c", "--update", str(target)])
     repomd = target / "repodata" / "repomd.xml"
     run(["gpg", "--batch", "--yes", "--detach-sign", "--armor", str(repomd)])
@@ -228,22 +286,47 @@ def publish_yum(incoming: Path, web_root: Path, distro_path: str, channel: str, 
 
 
 
-def prune_incompatible_yum_rpms(target: Path, distro_path: str) -> None:
-    """Remove RPMs for other EL major versions from an Alma repository.
+def rpm_identity(path: Path) -> tuple[str, str, str] | None:
+    if not path.name.endswith(".rpm") or path.name.endswith(".src.rpm"):
+        return None
+    stem = path.name[:-4]
+    arch_sep = stem.rfind(".")
+    if arch_sep < 0:
+        return None
+    arch = stem[arch_sep + 1:]
+    nevra = stem[:arch_sep]
+    match = re.search(r"-(?=\d)", nevra)
+    if not match:
+        return None
+    name = nevra[:match.start()]
+    version_release = nevra[match.start() + 1:]
+    return name, version_release, arch
+
+
+def prune_yum_rpms(target: Path, incoming_rpms: list[Path], distro_path: str) -> None:
+    """Remove incompatible and superseded RPMs from a repository.
 
     Stable repos are append-style so a provider-only release can update just the
-    provider package without removing the matching libvirt package set. If a bad
-    publish ever mixes Alma major versions, however, DNF can see incompatible
-    providers in one repo and fail dependency solving. Keep only RPMs that match
-    the major version implied by the repo path.
+    provider package without removing the matching libvirt package set. Keep
+    only RPMs that match the major version implied by the repo path, and keep
+    only the incoming version for package/arch pairs present in this publish.
     """
     version = distro_path.strip("/").split("/")[-1]
+    incoming_identities = {identity for rpm in incoming_rpms if (identity := rpm_identity(rpm))}
+    incoming_keys = {(name, arch) for name, _version_release, arch in incoming_identities}
     if not version.isdigit():
         return
     el_version = re.compile(r"\.el(\d+)(?:[_\.-]|$)")
     for rpm in target.glob("*.rpm"):
         match = el_version.search(rpm.name)
         if match and match.group(1) != version:
+            rpm.unlink()
+            continue
+        identity = rpm_identity(rpm)
+        if identity is None:
+            continue
+        name, _version_release, arch = identity
+        if (name, arch) in incoming_keys and identity not in incoming_identities:
             rpm.unlink()
 
 
@@ -275,8 +358,15 @@ def main() -> int:
     parser.add_argument("--component", choices=["staging", "stable"], required=True)
     parser.add_argument("--yum-distro-path", default="almalinux/10")
     parser.add_argument("--gpg-name", default="Subvirt Repository <repo@subvirt.local>")
+    parser.add_argument("--build-id", help="stable build ID used for immutable archive paths")
+    parser.add_argument("--archive-root", type=Path, help="archive root; defaults to <web-root>/archive")
     parser.add_argument("--skip-restorecon", action="store_true", help="do not run restorecon after publishing")
     args = parser.parse_args()
+
+    if args.component == "stable":
+        if not args.build_id:
+            raise SystemExit("--build-id is required when publishing stable")
+        archive_packages(args.incoming, args.archive_root or args.web_root / "archive", args.build_id)
 
     published = [
         publish_apt_all(args.incoming, args.web_root, args.suite, args.component),

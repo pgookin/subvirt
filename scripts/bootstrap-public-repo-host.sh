@@ -11,7 +11,7 @@ if ! id "$PUBLISH_USER" >/dev/null 2>&1; then
     useradd --system --create-home --home-dir "/var/lib/$PUBLISH_USER" --shell /bin/bash "$PUBLISH_USER"
 fi
 
-install -d -m 0755 -o "$PUBLISH_USER" -g "$PUBLISH_USER" /srv/repo/www /srv/www /srv/subvirt/incoming /srv/subvirt/tools
+install -d -m 0755 -o "$PUBLISH_USER" -g "$PUBLISH_USER" /srv/repo/www /srv/repo/www/archive /srv/www /srv/subvirt/incoming /srv/subvirt/tools
 install -m 0755 -o "$PUBLISH_USER" -g "$PUBLISH_USER" scripts/publish-repo.py /srv/subvirt/tools/publish-repo.py
 
 if [ -n "$AUTHORIZED_KEY_FILE" ]; then

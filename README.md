@@ -25,6 +25,8 @@ The public package repository is:
 
 The guide covers adding the repo, installing packages, configuring the TrueNAS
 provider, creating libvirt pools, and validating iSCSI or NVMe-oF volumes.
+Historical release artifacts are archived under `https://repo.subvirt.net/archive/`
+for rollback and debugging; normal installs should use the stable apt/dnf repos.
 
 ## Documentation
 

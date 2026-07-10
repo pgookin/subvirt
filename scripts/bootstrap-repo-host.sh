@@ -3,7 +3,7 @@ set -eu
 
 dnf install -y nginx createrepo_c rpm-sign rsync gnupg2 zstd policycoreutils-python-utils firewalld
 
-install -d -m 0755 /srv/repo/www /srv/subvirt/incoming /usr/local/libexec/subvirt
+install -d -m 0755 /srv/repo/www /srv/repo/www/archive /srv/subvirt/incoming /usr/local/libexec/subvirt
 install -m 0755 scripts/publish-repo.py /usr/local/libexec/subvirt/publish-repo.py
 
 if ! gpg --batch --list-secret-keys "Subvirt Repository" >/dev/null 2>&1; then

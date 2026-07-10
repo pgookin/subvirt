@@ -377,8 +377,8 @@ def promotion_preflight(ctx: Context) -> None:
         f"if test -d {q(incoming_root)}; then check incoming_root_writable test -w {q(incoming_root)}; else check incoming_parent_writable test -w {q(incoming_parent)} && install -d -m 0755 {q(incoming_root)}; fi",
         f"check web_root test -d {q(web_root)}",
         f"check web_root_writable test -w {q(web_root)}",
-        f"mkdir -p {q(web_root + '/apt/ubuntu')} {q(web_root + '/yum')} {q(web_root + '/keys')}",
-        f"df -Pk {q(incoming_root)} {q(web_root)} | awk 'NR > 1 {{ if ($4 < 2097152) {{ print \"insufficient free space on \" $6 \": \" $4 \" KiB\"; exit 1 }} }}'",
+        f"mkdir -p {q(web_root + '/apt/ubuntu')} {q(web_root + '/yum')} {q(web_root + '/keys')} {q(web_root + '/archive')}",
+        f"df -Pk {q(incoming_root)} {q(web_root)} {q(web_root + '/archive')} | awk 'NR > 1 {{ if ($4 < 2097152) {{ print \"insufficient free space on \" $6 \": \" $4 \" KiB\"; exit 1 }} }}'",
         f"check gpg_key gpg --batch --list-secret-keys {q(public['gpg_name'])} >/dev/null",
     ])
     remote(public["host"], command, ctx)
@@ -398,6 +398,7 @@ def publish_public_stable(ctx: Context) -> None:
         "--component stable",
         f"--yum-distro-path {q(public['yum_distro_path'])}",
         f"--gpg-name {q(public['gpg_name'])}",
+        f"--build-id {q(ctx.build_id)}",
         "--skip-restorecon",
     ])
     remote(public["host"], command, ctx)
@@ -431,7 +432,8 @@ def public_stable_urls(ctx: Context) -> list[str]:
     ]
     debs = artifact_files(ctx, "ubuntu", ".deb")
     if debs:
-        suites = sorted({path.parent.name for path in debs if path.parent.name})
+        apt_suites = set(public["apt_distributions"])
+        suites = sorted({path.parent.name for path in debs if path.parent.name in apt_suites})
         if not suites:
             suites = [public["apt_distribution"]]
         for suite in suites:
@@ -440,7 +442,10 @@ def public_stable_urls(ctx: Context) -> list[str]:
                 f"{base}/apt/ubuntu/dists/{suite}/InRelease",
                 f"{base}/apt/ubuntu/dists/{suite}/stable/binary-amd64/Packages.gz",
             ])
-        urls.extend(f"{base}/apt/ubuntu/pool/stable/{path.name}" for path in debs)
+        urls.extend(
+            f"{base}/apt/ubuntu/pool/stable/{path.parent.name if path.parent.name in apt_suites else public['apt_distribution']}/{path.name}"
+            for path in debs
+        )
     rpms = [
         path for path in artifact_files(ctx, "alma", ".rpm")
         if not path.name.endswith(".src.rpm") and "debuginfo" not in path.name and "debugsource" not in path.name
@@ -463,8 +468,30 @@ def public_stable_urls(ctx: Context) -> list[str]:
 
 
 def verify_public_stable(ctx: Context) -> None:
-    for url in public_stable_urls(ctx):
+    for url in public_stable_urls(ctx) + public_archive_urls(ctx):
         check_url(url, ctx.execute)
+
+
+def public_archive_base_url(ctx: Context) -> str:
+    public = require_public_repo(ctx)
+    return f"{public['base_url']}/archive/builds/{ctx.build_id}"
+
+
+def public_archive_urls(ctx: Context) -> list[str]:
+    root = Path("artifacts") / ctx.build_id
+    urls = [f"{public_archive_base_url(ctx)}/manifest.json"]
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+        if path.name.endswith(".deb") or (
+            path.name.endswith(".rpm")
+            and not path.name.endswith(".src.rpm")
+            and "debuginfo" not in path.name
+            and "debugsource" not in path.name
+        ):
+            rel = path.relative_to(root).as_posix()
+            urls.append(f"{public_archive_base_url(ctx)}/artifacts/{rel}")
+    return urls
 
 
 def write_promotion_evidence(ctx: Context) -> None:
@@ -498,6 +525,8 @@ def write_promotion_evidence(ctx: Context) -> None:
         "yum_distro_path": public["yum_distro_path"],
         "yum_distro_paths": public["yum_distro_paths"],
         "packages": packages,
+        "archive_url": public_archive_base_url(ctx),
+        "archive_urls": public_archive_urls(ctx),
         "verified_urls": public_stable_urls(ctx),
     }
     output = root / "promotion-evidence.json"
@@ -786,6 +815,7 @@ def promote(ctx: Context) -> None:
         f"--suite {q(r['apt_distribution'])}",
         "--component stable",
         f"--yum-distro-path {q(r.get('yum_distro_path', 'almalinux/10'))}",
+        f"--build-id {q(ctx.build_id)}",
     ])
     remote(repo_host, command, ctx)
 

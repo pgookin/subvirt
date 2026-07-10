@@ -6,6 +6,8 @@ or NVMe-oF.
 
 This guide covers Ubuntu LTS and AlmaLinux 9/10 hosts. Ubuntu 18.04 and 20.04 are ESM-era targets and may require Ubuntu Pro/ESM access for matching base-system updates.
 
+Use the stable apt/dnf repositories below for normal installs. Archived builds under `https://repo.subvirt.net/archive/` are immutable release artifacts for operators, not package-manager repositories.
+
 ## Requirements
 
 - TrueNAS 25.10.x with one or more storage pools.

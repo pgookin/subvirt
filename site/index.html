@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Subvirt</title>
-  <meta name="description" content="Subvirt provides libvirt packages with TrueNAS-backed storage integration for Ubuntu 24.04 and AlmaLinux 10.">
+  <meta name="description" content="Subvirt provides libvirt packages with TrueNAS-backed storage integration for Ubuntu LTS and AlmaLinux hosts.">
   <style>
     :root {
       color-scheme: dark;
@@ -277,7 +277,7 @@
       <div>
         <div class="eyebrow">TrueNAS storage for libvirt labs</div>
         <h1>Subvirt</h1>
-        <p class="lead">Patched libvirt, virt-manager, and provider packages that let Ubuntu 24.04 and AlmaLinux 10 hosts create TrueNAS-backed VM disks through iSCSI or NVMe-oF.</p>
+        <p class="lead">Patched libvirt, virt-manager, and provider packages that let Ubuntu LTS and AlmaLinux 9/10 hosts create TrueNAS-backed VM disks through iSCSI or NVMe-oF.</p>
         <div class="actions">
           <a class="button primary" href="https://github.com/pgookin/subvirt/blob/main/docs/getting-started.md">Get started</a>
           <a class="button" href="https://repo.subvirt.net/">Browse packages</a>
@@ -316,17 +316,17 @@
         <div class="eyebrow">Package repositories</div>
         <div class="repo-list">
           <div class="item">
-            <h2>Ubuntu 24.04</h2>
-            <p>Stable apt repository endpoint:</p>
+            <h2>Ubuntu LTS</h2>
+            <p>Stable apt repository endpoint for bionic, focal, jammy, noble, and resolute:</p>
             <code>https://repo.subvirt.net/apt/ubuntu</code>
           </div>
           <div class="item">
-            <h2>AlmaLinux 10</h2>
+            <h2>AlmaLinux 9/10</h2>
             <p>Stable dnf repository endpoint:</p>
-            <code>https://repo.subvirt.net/yum/almalinux/10/stable</code>
+            <code>https://repo.subvirt.net/yum/almalinux/$releasever/stable</code>
           </div>
         </div>
-        <p class="notice">These packages are experimental and intended for controlled lab environments while the integration is under active development.</p>
+        <p class="notice">These packages are experimental and intended for controlled lab environments while the integration is under active development. Archived release artifacts are available under https://repo.subvirt.net/archive/ for rollback and debugging.</p>
       </div>
     </section>
 

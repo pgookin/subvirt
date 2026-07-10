@@ -679,12 +679,39 @@ def doctor_truenas(lab: Lab) -> None:
     print(f"TrueNAS doctor OK: pools {', '.join(sorted(required))} are present")
 
 
-def create_linux_lab(lab: Lab) -> None:
+def prepare_linux_lab(lab: Lab) -> None:
     ensure_dirs(lab)
     prepare_run_dir(lab)
     ensure_networks(lab)
-    for index, key in enumerate(linux_vm_keys(lab, ["ubuntu", "alma"]), start=1):
-        create_cloud_vm(lab, key, index * 10)
+
+
+def linux_vm_offset_map(lab: Lab) -> dict[str, int]:
+    return {key: index * 10 for index, key in enumerate(linux_vm_candidate_keys(lab), start=1)}
+
+
+def create_linux_vms(lab: Lab, vm_keys: Iterable[str]) -> None:
+    ensure_dirs(lab)
+    ensure_networks(lab)
+    offsets = linux_vm_offset_map(lab)
+    for key in vm_keys:
+        create_cloud_vm(lab, key, offsets[key])
+
+
+def linux_domain_name(lab: Lab, key: str) -> str:
+    return f"{lab.config['lab']['name_prefix']}-{lab.build_id}-{lab.config['vms'][key]['name']}"
+
+
+def destroy_linux_vms(lab: Lab, vm_keys: Iterable[str]) -> None:
+    for key in vm_keys:
+        destroy_domain(lab, linux_domain_name(lab, key))
+        image_path(lab, key).unlink(missing_ok=True) if lab.execute else print(f"+ rm -f {image_path(lab, key)}")
+        seed = seed_iso_path(lab, linux_domain_name(lab, key))
+        seed.unlink(missing_ok=True) if lab.execute else print(f"+ rm -f {seed}")
+
+
+def create_linux_lab(lab: Lab) -> None:
+    prepare_linux_lab(lab)
+    create_linux_vms(lab, linux_vm_keys(lab, ["ubuntu", "alma"]))
     write_run_release_config(lab)
 
 
@@ -1289,6 +1316,37 @@ def test_repo(lab: Lab, mode: str) -> None:
         print(f"partial lab repo test completed for distros={distros}; no storage target pairs were configured")
 
 
+def test_repo_sequential(lab: Lab, mode: str) -> None:
+    distros = published_distros(lab)
+    primary_keys = selected_primary_linux_vm_keys(lab, distros)
+    if not primary_keys:
+        raise SystemExit(f"no Linux lab targets selected for distros={distros}")
+    api_key = lab.config.get("truenas", {}).get("api_key")
+    if not api_key:
+        raise SystemExit("truenas.api_key is required for lab candidate validation; set it in the local lab config")
+    doctor_truenas(lab)
+    for primary in primary_keys:
+        vm_keys = [primary]
+        peer = migration_peer_key_for(lab, primary)
+        if peer and peer not in vm_keys:
+            vm_keys.append(peer)
+        print(f"Sequential lab target {vm_target_id(lab, primary)} start: {', '.join(vm_keys)}")
+        create_linux_vms(lab, vm_keys)
+        write_run_release_config(lab, [primary])
+        wait_for_linux_vms(lab, vm_keys)
+        configure_linux_repos(lab, vm_keys, mode)
+        configure_provider_configs(lab, vm_keys)
+        release_config = load_config(lab.run_dir / "release.json") if lab.execute else {"tests": {"storage_targets": []}}
+        if lab.execute and release_config.get("tests", {}).get("storage_targets"):
+            run([str(ROOT / "scripts" / "release.py"), "test-staging", "--config", str(lab.run_dir / "release.json"), "--build-id", lab.build_id, "--execute"], lab.execute)
+        elif not lab.execute:
+            run([str(ROOT / "scripts" / "release.py"), "test-staging", "--config", str(lab.run_dir / "release.json"), "--build-id", lab.build_id, "--execute"], lab.execute)
+        else:
+            print(f"partial lab repo test completed for target={vm_target_id(lab, primary)}; no storage target pair was configured")
+        destroy_linux_vms(lab, vm_keys)
+        print(f"Sequential lab target {vm_target_id(lab, primary)} passed")
+
+
 def configure_truenas(lab: Lab) -> None:
     script = lab.config.get("truenas", {}).get("post_install_script")
     if not script:
@@ -1296,7 +1354,7 @@ def configure_truenas(lab: Lab) -> None:
     run([script, "--config", str(lab.run_dir / "lab.json"), "--build-id", lab.build_id], lab.execute)
 
 
-def write_run_release_config(lab: Lab) -> None:
+def write_run_release_config(lab: Lab, selected_keys: Iterable[str] | None = None) -> None:
     tests = lab.config["tests"]
     release = load_config(Path(lab.config["lab"].get("release_template", ROOT / "release" / "release.example.json")))
     release["hosts"]["build"] = socket.gethostname()
@@ -1305,7 +1363,7 @@ def write_run_release_config(lab: Lab) -> None:
     release["project"]["source_mode"] = "rsync"
     release["project"]["source_path"] = str(ROOT)
     release["project"].setdefault("rsync_excludes", [".git", "build", "dist", "provider-build", ".venv-vnc"])
-    selected_keys = selected_primary_linux_vm_keys(lab, published_distros(lab))
+    selected_keys = list(selected_keys or selected_primary_linux_vm_keys(lab, published_distros(lab)))
     ubuntu_keys = [key for key in selected_keys if vm_distro(lab, key) == "ubuntu"]
     alma_keys = [key for key in selected_keys if vm_distro(lab, key) == "alma"]
     if ubuntu_keys:
@@ -1406,7 +1464,7 @@ def destroy_lab(lab: Lab) -> None:
 
 def parse_args(argv: Iterable[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=["bootstrap-host", "create-linux", "create", "ensure-truenas", "wait-linux", "wait-truenas", "doctor-truenas", "publish-repo", "test-repo", "configure-truenas", "destroy"])
+    parser.add_argument("command", choices=["bootstrap-host", "prepare-linux", "create-linux", "create", "ensure-truenas", "wait-linux", "wait-truenas", "doctor-truenas", "publish-repo", "test-repo", "test-repo-sequential", "configure-truenas", "destroy"])
     parser.add_argument("--config", default="release/lab.example.json", type=Path)
     parser.add_argument("--build-id", default="manual")
     parser.add_argument("--artifacts", type=Path, help="artifact directory containing ubuntu/ and alma/ subdirectories")
@@ -1420,6 +1478,8 @@ def main(argv: Iterable[str] = sys.argv[1:]) -> int:
     lab = Lab(load_config(args.config), args.execute, args.build_id)
     if args.command == "bootstrap-host":
         bootstrap_host(lab)
+    elif args.command == "prepare-linux":
+        prepare_linux_lab(lab)
     elif args.command == "create-linux":
         create_linux_lab(lab)
     elif args.command == "create":
@@ -1437,6 +1497,8 @@ def main(argv: Iterable[str] = sys.argv[1:]) -> int:
         publish_repo(lab, artifacts)
     elif args.command == "test-repo":
         test_repo(lab, args.mode)
+    elif args.command == "test-repo-sequential":
+        test_repo_sequential(lab, args.mode)
     elif args.command == "configure-truenas":
         configure_truenas(lab)
     elif args.command == "destroy":

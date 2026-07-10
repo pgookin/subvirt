@@ -664,7 +664,8 @@ def test_ephemeral_lab(ctx: Context) -> None:
     workdir = p["workdir"]
     config_path = lab.get("config", "/srv/subvirt/release/lab.json")
     artifacts = f"{p['artifact_dir']}/{ctx.build_id}"
-    create_command = "create" if lab.get("full", False) else "create-linux"
+    create_command = "create" if lab.get("full", False) else "prepare-linux"
+    test_command = "test-repo" if lab.get("full", False) else "test-repo-sequential"
     remote_checkout(ctx, host)
     command = " ; ".join([
         "set -e",
@@ -678,7 +679,7 @@ def test_ephemeral_lab(ctx: Context) -> None:
         f"SUBVIRT_UBUNTU_TARGETS={q(os.environ.get('SUBVIRT_UBUNTU_TARGETS', 'ubuntu-24.04'))} "
         f"SUBVIRT_ALMA_TARGETS={q(os.environ.get('SUBVIRT_ALMA_TARGETS', 'almalinux-10'))} "
         f"SUBVIRT_LAB_TARGETS={q(os.environ.get('SUBVIRT_LAB_TARGETS', 'selected'))} "
-        f"./scripts/lab.py test-repo --config {q(config_path)} --build-id {q(ctx.build_id)} --mode {q(ctx.lab_mode)} --execute",
+        f"./scripts/lab.py {test_command} --config {q(config_path)} --build-id {q(ctx.build_id)} --mode {q(ctx.lab_mode)} --execute",
         "rc=$?",
         f"if test $rc -eq 0; then ./scripts/lab.py destroy --config {q(config_path)} --build-id {q(ctx.build_id)} --execute; "
         f"else echo 'Ephemeral lab preserved for failed build {ctx.build_id}. Cleanup with: ./scripts/lab.py destroy --config {q(config_path)} --build-id {q(ctx.build_id)} --execute' >&2; fi",

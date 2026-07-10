@@ -28,6 +28,7 @@ class UbuntuMirrorBootcmdTests(unittest.TestCase):
         self.assertIn("/etc/apt/sources.list", bootcmd)
         self.assertIn("/etc/apt/sources.list.d/*.sources", bootcmd)
         self.assertIn("URIs: $mirror", bootcmd)
+        self.assertIn("s@https?://(archive|security|cloud\\.archive|ports)\\.ubuntu\\.com/ubuntu@$mirror@g", bootcmd)
         self.assertIn("http://10.1.0.121/ubuntu", bootcmd)
 
     def test_configure_linux_repos_rewrites_ubuntu_base_sources_before_update(self) -> None:
@@ -61,6 +62,7 @@ class UbuntuMirrorBootcmdTests(unittest.TestCase):
         self.assertLess(command.index("mirror=http://10.1.0.121/ubuntu"), command.index("apt-get update"))
         self.assertLess(command.index("/etc/apt/sources.list"), command.index("apt-get update"))
         self.assertLess(command.index("/etc/apt/sources.list.d/*.sources"), command.index("apt-get update"))
+        self.assertIn("s@https?://(archive|security|cloud\\.archive|ports)\\.ubuntu\\.com/ubuntu@$mirror@g", command)
         self.assertIn("linux-modules-extra-$(uname -r)", command)
 
 

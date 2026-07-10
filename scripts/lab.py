@@ -263,7 +263,7 @@ def ubuntu_mirror_rewrite_command(lab: Lab) -> str:
     mirror = q(os_mirror_url(lab, "ubuntu"))
     return f"""mirror={mirror}
 if [ -f /etc/apt/sources.list ]; then
-  sed -i -E "s|https?://(archive|security|cloud\\.archive|ports)\\.ubuntu\\.com/ubuntu|$mirror|g" /etc/apt/sources.list
+  sed -i -E "s@https?://(archive|security|cloud\\.archive|ports)\\.ubuntu\\.com/ubuntu@$mirror@g" /etc/apt/sources.list
 fi
 if ls /etc/apt/sources.list.d/*.sources >/dev/null 2>&1; then
   sed -i -E "s|^URIs: .*$|URIs: $mirror|g" /etc/apt/sources.list.d/*.sources

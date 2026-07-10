@@ -26,7 +26,8 @@ class UbuntuMirrorBootcmdTests(unittest.TestCase):
         bootcmd = lab.cloud_init_repo_bootcmd(lab.Lab(config=config, execute=False, build_id="test"), "ubuntu")
 
         self.assertIn("/etc/apt/sources.list", bootcmd)
-        self.assertIn("/etc/apt/sources.list.d/*.sources", bootcmd)
+        self.assertIn("for source_file in /etc/apt/sources.list.d/*.sources", bootcmd)
+        self.assertIn("grep -Eq '^URIs: https?://(archive|security|cloud\\.archive|ports)\\.ubuntu\\.com/ubuntu/?$'", bootcmd)
         self.assertIn("URIs: $mirror", bootcmd)
         self.assertIn("s@https?://(archive|security|cloud\\.archive|ports)\\.ubuntu\\.com/ubuntu@$mirror@g", bootcmd)
         self.assertIn("http://10.1.0.121/ubuntu", bootcmd)
@@ -61,8 +62,9 @@ class UbuntuMirrorBootcmdTests(unittest.TestCase):
         command = calls[0]
         self.assertLess(command.index("mirror=http://10.1.0.121/ubuntu"), command.index("apt-get update"))
         self.assertLess(command.index("/etc/apt/sources.list"), command.index("apt-get update"))
-        self.assertLess(command.index("/etc/apt/sources.list.d/*.sources"), command.index("apt-get update"))
+        self.assertLess(command.index("for source_file in /etc/apt/sources.list.d/*.sources"), command.index("apt-get update"))
         self.assertIn("s@https?://(archive|security|cloud\\.archive|ports)\\.ubuntu\\.com/ubuntu@$mirror@g", command)
+        self.assertIn("grep -Eq '^URIs: https?://(archive|security|cloud\\.archive|ports)\\.ubuntu\\.com/ubuntu/?$'", command)
         self.assertIn("linux-modules-extra-$(uname -r)", command)
 
 

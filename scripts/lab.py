@@ -265,9 +265,12 @@ def ubuntu_mirror_rewrite_command(lab: Lab) -> str:
 if [ -f /etc/apt/sources.list ]; then
   sed -i -E "s@https?://(archive|security|cloud\\.archive|ports)\\.ubuntu\\.com/ubuntu@$mirror@g" /etc/apt/sources.list
 fi
-if ls /etc/apt/sources.list.d/*.sources >/dev/null 2>&1; then
-  sed -i -E "s|^URIs: .*$|URIs: $mirror|g" /etc/apt/sources.list.d/*.sources
-fi"""
+for source_file in /etc/apt/sources.list.d/*.sources; do
+  [ -e "$source_file" ] || continue
+  if grep -Eq '^URIs: https?://(archive|security|cloud\\.archive|ports)\\.ubuntu\\.com/ubuntu/?$' "$source_file"; then
+    sed -i -E "s|^URIs: .*$|URIs: $mirror|g" "$source_file"
+  fi
+done"""
 
 
 def cloud_init_repo_bootcmd(lab: Lab, distro: str) -> str:

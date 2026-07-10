@@ -259,19 +259,23 @@ def os_mirror_url(lab: Lab, distro: str) -> str:
     return str(mirrors.get(distro, defaults[distro])).rstrip("/")
 
 
+def ubuntu_mirror_rewrite_command(lab: Lab) -> str:
+    mirror = q(os_mirror_url(lab, "ubuntu"))
+    return f"""mirror={mirror}
+if [ -f /etc/apt/sources.list ]; then
+  sed -i -E "s|https?://(archive|security|cloud\\.archive|ports)\\.ubuntu\\.com/ubuntu|$mirror|g" /etc/apt/sources.list
+fi
+if ls /etc/apt/sources.list.d/*.sources >/dev/null 2>&1; then
+  sed -i -E "s|^URIs: .*$|URIs: $mirror|g" /etc/apt/sources.list.d/*.sources
+fi"""
+
+
 def cloud_init_repo_bootcmd(lab: Lab, distro: str) -> str:
     if distro == "ubuntu":
-        mirror = q(os_mirror_url(lab, "ubuntu"))
         return f"""bootcmd:
   - |
     set -eu
-    mirror={mirror}
-    if [ -f /etc/apt/sources.list ]; then
-      sed -i -E "s|https?://(archive|security|cloud\\.archive|ports)\\.ubuntu\\.com/ubuntu|$mirror|g" /etc/apt/sources.list
-    fi
-    if ls /etc/apt/sources.list.d/*.sources >/dev/null 2>&1; then
-      sed -i -E "s|^URIs: .*$|URIs: $mirror|g" /etc/apt/sources.list.d/*.sources
-    fi
+{textwrap.indent(ubuntu_mirror_rewrite_command(lab), '    ')}
 """
     if distro == "alma":
         mirror = q(os_mirror_url(lab, "alma"))
@@ -1002,11 +1006,12 @@ def wait_for_linux_vms(lab: Lab, vm_keys: Iterable[str]) -> None:
 
 def ensure_bionic_hwe_kernel(lab: Lab, key: str) -> None:
     host = lab.config["vms"][key]["management_ip"]
-    command = r"""
+    command = f"""
 set -euo pipefail
-if uname -r | grep -q '^5\.4\.' && modprobe nvme-tcp; then
+if uname -r | grep -q '^5\\.4\\.' && modprobe nvme-tcp; then
   exit 0
 fi
+{ubuntu_mirror_rewrite_command(lab)}
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold linux-generic-hwe-18.04 linux-modules-extra-virtual-hwe-18.04
 nohup systemctl reboot >/dev/null 2>&1 &
@@ -1056,6 +1061,7 @@ Package: truenas-libvirt-provider
 Pin: release c=staging
 Pin-Priority: 1001
 EOF
+{ubuntu_mirror_rewrite_command(lab)}
 apt-get clean
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get --fix-broken install -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold
@@ -1125,6 +1131,7 @@ Components: {component}
 Architectures: amd64
 Signed-By: /usr/share/keyrings/subvirt.gpg
 EOF
+{ubuntu_mirror_rewrite_command(lab)}
 apt-get clean
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get --fix-broken install -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold

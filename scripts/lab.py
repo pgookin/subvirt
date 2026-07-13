@@ -345,7 +345,7 @@ runcmd:
             },
         },
     }
-    seed = lab.run_dir / f"{name}-seed.iso"
+    seed = seed_iso_path(lab, name)
     user = lab.run_dir / f"{name}-user-data.yaml"
     net = lab.run_dir / f"{name}-network-config.yaml"
     meta = lab.run_dir / f"{name}-meta-data.yaml"
@@ -376,6 +376,10 @@ ethernets:
     else:
         print(f"+ write cloud-init seed {seed}")
     return seed
+
+
+def seed_iso_path(lab: Lab, domain_name: str) -> Path:
+    return lab.run_dir / f"{domain_name}-seed.iso"
 
 
 def image_path(lab: Lab, vm_key: str) -> Path:

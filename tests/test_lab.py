@@ -129,6 +129,26 @@ class SequentialLabTests(unittest.TestCase):
             ("destroy", ("alma9",)),
         ])
 
+    def test_destroy_linux_vms_removes_matching_seed_iso_path(self) -> None:
+        config = {
+            "lab": {"workdir": "/tmp/subvirt-lab", "name_prefix": "subvirt"},
+            "vms": {"u24": {"name": "u24"}},
+        }
+        test_lab = lab.Lab(config=config, execute=False, build_id="test")
+        events: list[str] = []
+
+        def fake_print(message: object) -> None:
+            events.append(str(message))
+
+        with mock.patch.object(lab, "destroy_domain"), \
+             mock.patch.object(lab, "print", side_effect=fake_print):
+            lab.destroy_linux_vms(test_lab, ["u24"])
+
+        domain_name = "subvirt-test-u24"
+        self.assertEqual(lab.seed_iso_path(test_lab, domain_name), Path("/tmp/subvirt-lab/runs/test/subvirt-test-u24-seed.iso"))
+        self.assertIn("+ rm -f /tmp/subvirt-lab/images/test-u24.qcow2", events)
+        self.assertIn("+ rm -f /tmp/subvirt-lab/runs/test/subvirt-test-u24-seed.iso", events)
+
 
 if __name__ == "__main__":
     unittest.main()

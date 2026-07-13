@@ -6,8 +6,6 @@ storage gates clean up their volumes, while failed runs leave volumes behind
 for inspection.
 """
 
-from __future__ import annotations
-
 import argparse
 import hashlib
 import os
@@ -16,7 +14,7 @@ import subprocess
 import sys
 import time
 import urllib.request
-from typing import Iterable
+from typing import Iterable, List, Optional, Set, Tuple
 
 
 def q(argv: Iterable[str]) -> str:
@@ -24,18 +22,18 @@ def q(argv: Iterable[str]) -> str:
     return " ".join(shlex.quote(str(item)) for item in argv)
 
 
-def run(argv: list[str]) -> str:
+def run(argv: List[str]) -> str:
     print("+ " + q(argv), flush=True)
-    result = subprocess.run(argv, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
+    result = subprocess.run(argv, universal_newlines=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
     if result.stdout:
         print(result.stdout, end="")
     result.check_returncode()
     return result.stdout
 
 
-def run_expect_failure(argv: list[str], expected: str | None = None) -> str:
+def run_expect_failure(argv: List[str], expected: Optional[str] = None) -> str:
     print("+ " + q(argv), flush=True)
-    result = subprocess.run(argv, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
+    result = subprocess.run(argv, universal_newlines=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
     if result.stdout:
         print(result.stdout, end="")
     if result.returncode == 0:
@@ -49,11 +47,11 @@ def virsh(*args: str) -> str:
     return run(["virsh", "-c", "qemu:///system", *args])
 
 
-def virsh_expect_failure(expected: str | None, *args: str) -> str:
+def virsh_expect_failure(expected: Optional[str], *args: str) -> str:
     return run_expect_failure(["virsh", "-c", "qemu:///system", *args], expected)
 
 
-def ssh_args(peer: str) -> list[str]:
+def ssh_args(peer: str) -> List[str]:
     argv = ["ssh", "-o", "BatchMode=yes"]
     identity = os.environ.get("SUBVIRT_TEST_SSH_IDENTITY_FILE", "")
     known_hosts = os.environ.get("SUBVIRT_TEST_SSH_KNOWN_HOSTS_FILE", "")
@@ -197,7 +195,7 @@ def stable_device_path(volume: str) -> str:
     return f"/dev/subvirt-storage/{volume}"
 
 
-def link_device(actual: str, link: str, peer: str | None = None) -> None:
+def link_device(actual: str, link: str, peer: Optional[str] = None) -> None:
     parent = str(Path(link).parent)
     if peer:
         remote(peer, "install", "-d", "-m", "0755", parent)
@@ -209,7 +207,7 @@ def link_device(actual: str, link: str, peer: str | None = None) -> None:
         run(["test", "-e", link])
 
 
-def wait_for_domain_state(domain: str, state: str, timeout: int = 60, peer: str | None = None) -> None:
+def wait_for_domain_state(domain: str, state: str, timeout: int = 60, peer: Optional[str] = None) -> None:
     deadline = time.time() + timeout
     last = ""
     while time.time() < deadline:
@@ -260,7 +258,7 @@ QEMU_EMULATOR_CANDIDATES = [
 ]
 
 
-def executable_exists(path: str, peer: str | None = None) -> bool:
+def executable_exists(path: str, peer: Optional[str] = None) -> bool:
     try:
         if peer:
             remote(peer, "test", "-x", path)
@@ -271,7 +269,7 @@ def executable_exists(path: str, peer: str | None = None) -> bool:
         return False
 
 
-def first_existing_emulator(peer: str | None = None) -> str:
+def first_existing_emulator(peer: Optional[str] = None) -> str:
     for candidate in QEMU_EMULATOR_CANDIDATES:
         if executable_exists(candidate, peer=peer):
             return candidate
@@ -290,10 +288,10 @@ def ensure_peer_emulator(peer: str, emulator: str) -> bool:
 UNSAFE_MACHINE_ALIASES = {"pc", "q35", "ubuntu", "ubuntu-q35", "none"}
 
 
-def machine_types(emulator: str, peer: str | None = None) -> tuple[list[str], set[str]]:
+def machine_types(emulator: str, peer: Optional[str] = None) -> Tuple[List[str], Set[str]]:
     output = remote(peer, emulator, "-machine", "help") if peer else run([emulator, "-machine", "help"])
-    names: list[str] = []
-    deprecated: set[str] = set()
+    names = []  # type: List[str]
+    deprecated = set()  # type: Set[str]
     for line in output.splitlines():
         parts = line.split()
         if not parts or parts[0] == "Supported":
@@ -395,8 +393,8 @@ def cleanup_migration(
     peer: str,
     pool: str,
     volume: str,
-    peer_emulator_alias: str | None = None,
-    stable_path: str | None = None,
+    peer_emulator_alias: Optional[str] = None,
+    stable_path: Optional[str] = None,
 ) -> None:
     if stable_path:
         try:

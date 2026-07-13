@@ -837,7 +837,7 @@ def cmd_nvmeof_export(args: argparse.Namespace) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="config.json")
-    subparsers = parser.add_subparsers(required=True)
+    subparsers = parser.add_subparsers(dest="command")
 
     call_parser = subparsers.add_parser("call")
     call_parser.add_argument("method")
@@ -890,7 +890,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
-    args = build_parser().parse_args()
+    parser = build_parser()
+    args = parser.parse_args()
+    if not hasattr(args, "func"):
+        parser.error("missing command")
     try:
         args.func(args)
     except Exception as exc:

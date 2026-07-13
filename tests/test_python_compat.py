@@ -31,6 +31,19 @@ class Python36CompatibilityTests(unittest.TestCase):
             with self.subTest(path=path.relative_to(ROOT)):
                 self.assertEqual(offenders, [])
 
+    def test_deployed_guest_scripts_do_not_require_argparse_subparsers_keyword(self) -> None:
+        for path in DEPLOYED_PYTHON36_SCRIPTS:
+            source = path.read_text(encoding="utf-8")
+            tree = ast.parse(source, filename=str(path))
+            offenders = []
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "add_subparsers":
+                    for keyword in node.keywords:
+                        if keyword.arg == "required":
+                            offenders.append(f"add_subparsers(required=...) at line {node.lineno}")
+            with self.subTest(path=path.relative_to(ROOT)):
+                self.assertEqual(offenders, [])
+
 
 if __name__ == "__main__":
     unittest.main()

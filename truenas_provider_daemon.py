@@ -1155,7 +1155,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default=os.environ.get("TRUENAS_LIBVIRT_CONFIG", DEFAULT_CONFIG))
     parser.add_argument("--socket", default=os.environ.get("TRUENAS_LIBVIRT_SOCKET", DEFAULT_SOCKET))
-    subparsers = parser.add_subparsers(required=True)
+    subparsers = parser.add_subparsers(dest="command")
 
     daemon = subparsers.add_parser("daemon")
     daemon.set_defaults(command="daemon")
@@ -1173,7 +1173,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
-    args = build_parser().parse_args()
+    parser = build_parser()
+    args = parser.parse_args()
+    if not args.command:
+        parser.error("missing command")
     if args.command == "daemon":
         UnixJsonRpcServer(TrueNASLibvirtProvider(args.config), args.socket).serve_forever()
         return 0

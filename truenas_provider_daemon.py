@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Unix-socket JSON-RPC daemon for the TrueNAS libvirt storage provider."""
 
-from __future__ import annotations
-
 import argparse
 import hashlib
 import json
@@ -14,7 +12,7 @@ import sys
 import time
 import urllib.parse
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, List, Optional, Tuple
 
 from truenas_provider import (
     ConfigError,
@@ -107,14 +105,14 @@ NVMEOF_TRUENAS_API_METHODS = (
 
 
 class ProviderError(RuntimeError):
-    def __init__(self, code: str, message: str, data: dict[str, Any] | None = None) -> None:
+    def __init__(self, code: str, message: str, data: Optional[Dict[str, Any]] = None) -> None:
         super().__init__(message)
         self.code = code
         self.data = data or {}
 
 
-def run_command(argv: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(argv, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+def run_command(argv: List[str], check: bool = True) -> subprocess.CompletedProcess:
+    result = subprocess.run(argv, universal_newlines=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
     if check and result.returncode != 0:
         raise ProviderError(
             "command_failed",
@@ -143,7 +141,7 @@ def readable_nonempty(path: str) -> bool:
         return False
 
 
-def tcp_reachable(host: str, port: int, timeout: float = 3.0) -> dict[str, Any]:
+def tcp_reachable(host: str, port: int, timeout: float = 3.0) -> Dict[str, Any]:
     try:
         with socket.create_connection((host, port), timeout=timeout):
             return {"ok": True, "host": host, "port": port}
@@ -158,7 +156,7 @@ def kernel_module_available(name: str) -> bool:
     return run_command([modinfo, name], check=False).returncode == 0
 
 
-def transport_status() -> dict[str, Any]:
+def transport_status() -> Dict[str, Any]:
     nvme_tcp_available = kernel_module_available("nvme-tcp")
     iscsi = {
         "iscsiadm": tool_exists("iscsiadm"),
@@ -182,16 +180,16 @@ def doctor_check(
     name: str,
     ok: bool,
     message: str,
-    data: dict[str, Any] | None = None,
+    data: Optional[Dict[str, Any]] = None,
     required: bool = True,
-) -> dict[str, Any]:
+) -> Dict[str, Any]:
     item = {"name": name, "ok": bool(ok), "required": required, "message": message}
     if data:
         item["data"] = data
     return item
 
 
-def required_truenas_api_methods(transport: str) -> tuple[str, ...]:
+def required_truenas_api_methods(transport: str) -> Tuple[str, ...]:
     methods = list(BASE_TRUENAS_API_METHODS)
     if transport in ("all", "iscsi"):
         methods.extend(ISCSI_TRUENAS_API_METHODS)
@@ -208,7 +206,7 @@ class TrueNASLibvirtProvider:
     def _client(self) -> JsonRpcWebSocket:
         return open_client(self.config)
 
-    def _target_ip(self, override: str | None = None) -> str:
+    def _target_ip(self, override: Optional[str] = None) -> str:
         truenas = self.config["truenas"]
         assert isinstance(truenas, dict)
         target_ip = override or truenas.get("target_ip")
@@ -252,7 +250,7 @@ class TrueNASLibvirtProvider:
             return zvol
         return zvol[len(prefix):]
 
-    def _volume_from_dataset(self, pool: str, item: dict[str, Any]) -> dict[str, Any]:
+    def _volume_from_dataset(self, pool: str, item: Dict[str, Any]) -> Dict[str, Any]:
         properties = item.get("properties") or item
         user_properties = item.get("user_properties", {})
         transport = None
@@ -270,7 +268,7 @@ class TrueNASLibvirtProvider:
         }
 
     @staticmethod
-    def _property_parsed(properties: Any, name: str) -> int | None:
+    def _property_parsed(properties: Any, name: str) -> Optional[int]:
         if not isinstance(properties, dict):
             return None
         value = properties.get(name)
@@ -296,7 +294,7 @@ class TrueNASLibvirtProvider:
             }],
         )
 
-    def _create_zvol(self, client: JsonRpcWebSocket, pool: str, name: str, capacity: Any, transport: str) -> dict[str, Any]:
+    def _create_zvol(self, client: JsonRpcWebSocket, pool: str, name: str, capacity: Any, transport: str) -> Dict[str, Any]:
         self._ensure_namespace(client, pool)
         zvol = managed_zvol_name(pool, name, self.config)
         if dataset_exists(client, zvol):
@@ -319,7 +317,7 @@ class TrueNASLibvirtProvider:
         assert isinstance(result, dict)
         return result
 
-    def _get_zvol(self, client: JsonRpcWebSocket, pool: str, name: str) -> dict[str, Any]:
+    def _get_zvol(self, client: JsonRpcWebSocket, pool: str, name: str) -> Dict[str, Any]:
         zvol = managed_zvol_name(pool, name, self.config)
         rows = client.call("pool.dataset.query", [[["name", "=", zvol]], {"extra": {"properties": ["volsize", "used"]}}])
         if not isinstance(rows, list) or not rows:
@@ -329,7 +327,7 @@ class TrueNASLibvirtProvider:
             raise ProviderError("volume_invalid", f"invalid zvol response for: {zvol}")
         return row
 
-    def _resize_zvol(self, client: JsonRpcWebSocket, pool: str, name: str, capacity: Any) -> dict[str, Any]:
+    def _resize_zvol(self, client: JsonRpcWebSocket, pool: str, name: str, capacity: Any) -> Dict[str, Any]:
         zvol = managed_zvol_name(pool, name, self.config)
         requested = int(capacity)
         row = self._get_zvol(client, pool, name)
@@ -339,9 +337,9 @@ class TrueNASLibvirtProvider:
         client.call("pool.dataset.update", [zvol, {"volsize": requested}])
         return self._get_zvol(client, pool, name)
 
-    def _wait_for_zvol(self, client: JsonRpcWebSocket, pool: str, name: str, timeout: float = 10.0) -> dict[str, Any]:
+    def _wait_for_zvol(self, client: JsonRpcWebSocket, pool: str, name: str, timeout: float = 10.0) -> Dict[str, Any]:
         deadline = time.monotonic() + timeout
-        last_error: ProviderError | None = None
+        last_error: Optional[ProviderError] = None
         while time.monotonic() < deadline:
             try:
                 return self._get_zvol(client, pool, name)
@@ -358,16 +356,16 @@ class TrueNASLibvirtProvider:
         return f"subvirt-clone-{digest}"
 
     @staticmethod
-    def _snapshot_name(snapshot: dict[str, Any]) -> str:
+    def _snapshot_name(snapshot: Dict[str, Any]) -> str:
         value = snapshot.get("name") or snapshot.get("id")
         return str(value or "")
 
     @staticmethod
-    def _snapshot_short_name(snapshot: dict[str, Any]) -> str:
+    def _snapshot_short_name(snapshot: Dict[str, Any]) -> str:
         name = TrueNASLibvirtProvider._snapshot_name(snapshot)
         return name.rsplit("@", 1)[-1] if "@" in name else name
 
-    def _list_zvol_snapshots(self, client: JsonRpcWebSocket, zvol: str) -> list[dict[str, Any]]:
+    def _list_zvol_snapshots(self, client: JsonRpcWebSocket, zvol: str) -> List[Dict[str, Any]]:
         rows = client.call("pool.snapshot.query", [[["name", "^", f"{zvol}@"]], {"order_by": ["name"]}])
         if not isinstance(rows, list):
             raise ProviderError("snapshot_query_invalid", f"invalid snapshot response for: {zvol}")
@@ -380,7 +378,7 @@ class TrueNASLibvirtProvider:
             raise ProviderError("dataset_delete_unavailable", "TrueNAS API user cannot delete zvols with the currently exposed methods", {"zvol": dataset})
         client.call("pool.dataset.delete", [dataset, {"recursive": False, "force": False}])
 
-    def _delete_managed_snapshots(self, client: JsonRpcWebSocket, zvol: str, snapshots: list[dict[str, Any]]) -> None:
+    def _delete_managed_snapshots(self, client: JsonRpcWebSocket, zvol: str, snapshots: List[Dict[str, Any]]) -> None:
         blocking = []
         for snapshot in snapshots:
             name = self._snapshot_name(snapshot)
@@ -395,7 +393,7 @@ class TrueNASLibvirtProvider:
         if blocking:
             raise ProviderError("delete_blocked_by_snapshots", "volume has unmanaged snapshots; refusing delete", {"zvol": zvol, "snapshots": blocking})
 
-    def _clone_zvol(self, client: JsonRpcWebSocket, pool: str, source: str, target: str, transport: str, replace_existing: bool) -> dict[str, Any]:
+    def _clone_zvol(self, client: JsonRpcWebSocket, pool: str, source: str, target: str, transport: str, replace_existing: bool) -> Dict[str, Any]:
         source_zvol = managed_zvol_name(pool, source, self.config)
         target_zvol = managed_zvol_name(pool, target, self.config)
         if not dataset_exists(client, source_zvol):
@@ -452,7 +450,7 @@ class TrueNASLibvirtProvider:
             raise ProviderError("clone_metadata_failed", f"failed to tag cloned zvol {target_zvol}: {exc}", {"target": target_zvol, "transport": transport}) from None
         return self._get_zvol(client, pool, target)
 
-    def _list_zvols(self, client: JsonRpcWebSocket, pool: str, transport: str | None = None) -> list[dict[str, Any]]:
+    def _list_zvols(self, client: JsonRpcWebSocket, pool: str, transport: Optional[str] = None) -> List[Dict[str, Any]]:
         prefix = managed_dataset_name(pool, self.config) + "/"
         rows = client.call("pool.dataset.query", [[["type", "=", "VOLUME"], ["name", "^", prefix]], {"order_by": ["name"]}])
         assert isinstance(rows, list)
@@ -461,7 +459,7 @@ class TrueNASLibvirtProvider:
             volumes = [vol for vol in volumes if vol.get("transport") in (None, transport)]
         return volumes
 
-    def _pool_space(self, client: JsonRpcWebSocket, pool: str) -> dict[str, int]:
+    def _pool_space(self, client: JsonRpcWebSocket, pool: str) -> Dict[str, int]:
         dataset = managed_dataset_name(pool, self.config)
         rows = client.call(
             "pool.dataset.query",
@@ -483,7 +481,7 @@ class TrueNASLibvirtProvider:
             "available": available,
         }
 
-    def _iscsi_export(self, client: JsonRpcWebSocket, pool: str, name: str, target_ip: str) -> dict[str, Any]:
+    def _iscsi_export(self, client: JsonRpcWebSocket, pool: str, name: str, target_ip: str) -> Dict[str, Any]:
         zvol = managed_zvol_name(pool, name, self.config)
         if not dataset_exists(client, zvol):
             raise ProviderError("volume_missing", f"zvol does not exist: {zvol}")
@@ -503,7 +501,7 @@ class TrueNASLibvirtProvider:
             "serial": extent.get("serial"),
         }
 
-    def _nvme_export(self, client: JsonRpcWebSocket, pool: str, name: str, target_ip: str, port_number: int = 4420) -> dict[str, Any]:
+    def _nvme_export(self, client: JsonRpcWebSocket, pool: str, name: str, target_ip: str, port_number: int = 4420) -> Dict[str, Any]:
         zvol = managed_zvol_name(pool, name, self.config)
         if not dataset_exists(client, zvol):
             raise ProviderError("volume_missing", f"zvol does not exist: {zvol}")
@@ -526,7 +524,7 @@ class TrueNASLibvirtProvider:
             "namespace_id": namespace.get("id"),
         }
 
-    def _connect_iscsi(self, export: dict[str, Any]) -> None:
+    def _connect_iscsi(self, export: Dict[str, Any]) -> None:
         portal = str(export["portal"])
         target_iqn = str(export["target_iqn"])
         result = None
@@ -540,13 +538,13 @@ class TrueNASLibvirtProvider:
         assert result is not None
         raise ProviderError("iscsi_login_failed", "iSCSI login failed", {"stderr": result.stderr, "stdout": result.stdout})
 
-    def _connect_nvme(self, export: dict[str, Any]) -> None:
+    def _connect_nvme(self, export: Dict[str, Any]) -> None:
         subnqn = str(export["subnqn"])
         result = run_command(["nvme", "connect", "-t", "tcp", "-a", str(export["traddr"]), "-s", str(export["trsvcid"]), "-n", subnqn], check=False)
         if result.returncode != 0 and "already connected" not in result.stderr.lower() and "duplicate connect" not in result.stderr.lower():
             raise ProviderError("nvme_connect_failed", "NVMe-oF connect failed", {"stderr": result.stderr, "stdout": result.stdout})
 
-    def _find_by_id(self, prefixes: list[str], timeout: int = DEFAULT_TIMEOUT) -> str:
+    def _find_by_id(self, prefixes: List[str], timeout: int = DEFAULT_TIMEOUT) -> str:
         deadline = time.time() + timeout
         by_id = Path("/dev/disk/by-id")
         while time.time() < deadline:
@@ -558,7 +556,7 @@ class TrueNASLibvirtProvider:
             time.sleep(0.5)
         raise ProviderError("path_not_found", "stable /dev/disk/by-id path was not found", {"prefixes": prefixes})
 
-    def _iscsi_path(self, export: dict[str, Any]) -> str:
+    def _iscsi_path(self, export: Dict[str, Any]) -> str:
         naa = str(export.get("naa") or "")
         serial = str(export.get("serial") or "")
         prefixes = []
@@ -569,7 +567,7 @@ class TrueNASLibvirtProvider:
             prefixes.append(f"scsi-STrueNAS_iSCSI_Disk_{serial}")
         return self._find_by_id(prefixes)
 
-    def _nvme_path(self, export: dict[str, Any]) -> str:
+    def _nvme_path(self, export: Dict[str, Any]) -> str:
         subnqn = str(export["subnqn"])
         deadline = time.time() + DEFAULT_TIMEOUT
         while time.time() < deadline:
@@ -595,7 +593,7 @@ class TrueNASLibvirtProvider:
         raise ProviderError("path_not_found", "stable NVMe /dev/disk/by-id path was not found", {"subnqn": subnqn})
 
     @staticmethod
-    def _find_by_id_target(devname: str) -> str | None:
+    def _find_by_id_target(devname: str) -> Optional[str]:
         by_id = Path("/dev/disk/by-id")
         if not by_id.exists():
             return None
@@ -610,7 +608,7 @@ class TrueNASLibvirtProvider:
                 continue
         return None
 
-    def _export(self, client: JsonRpcWebSocket, pool: str, name: str, transport: str) -> dict[str, Any]:
+    def _export(self, client: JsonRpcWebSocket, pool: str, name: str, transport: str) -> Dict[str, Any]:
         target_ip = self._target_ip()
         if transport == "iscsi":
             return self._iscsi_export(client, pool, name, target_ip)
@@ -618,7 +616,7 @@ class TrueNASLibvirtProvider:
             return self._nvme_export(client, pool, name, target_ip)
         raise ProviderError("transport_invalid", f"unsupported transport: {transport}")
 
-    def _connect_and_path(self, export: dict[str, Any], transport: str) -> str:
+    def _connect_and_path(self, export: Dict[str, Any], transport: str) -> str:
         if transport == "iscsi":
             self._connect_iscsi(export)
             return self._iscsi_path(export)
@@ -627,9 +625,9 @@ class TrueNASLibvirtProvider:
             return self._nvme_path(export)
         raise ProviderError("transport_invalid", f"unsupported transport: {transport}")
 
-    def _config_diagnostics(self) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    def _config_diagnostics(self) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
         checks = []
-        details: dict[str, Any] = {"config_path": self.config_path}
+        details: Dict[str, Any] = {"config_path": self.config_path}
         config_path = Path(self.config_path)
         checks.append(doctor_check("config.file", config_path.exists(), f"provider config exists: {self.config_path}"))
 
@@ -662,12 +660,12 @@ class TrueNASLibvirtProvider:
             checks.append(doctor_check("config.api_key_file", bool(os.environ.get("TRUENAS_API_KEY")), "truenas.api_key_file is configured or TRUENAS_API_KEY is set"))
         return checks, details
 
-    def _tool_diagnostics(self) -> tuple[list[dict[str, Any]], dict[str, bool]]:
+    def _tool_diagnostics(self) -> Tuple[List[Dict[str, Any]], Dict[str, bool]]:
         tools = {name: tool_exists(name) for name in ["iscsiadm", "nvme", "udevadm", "systemctl"]}
         checks = [doctor_check(f"tool.{name}", ok, f"{name} is available") for name, ok in tools.items()]
         return checks, tools
 
-    def _service_diagnostics(self) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    def _service_diagnostics(self) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
         service = {
             "provider_service_active": systemd_active("truenas-libvirt-provider.service"),
             "provider_socket": DEFAULT_SOCKET,
@@ -679,7 +677,7 @@ class TrueNASLibvirtProvider:
         ]
         return checks, service
 
-    def _transport_diagnostics(self, transport: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    def _transport_diagnostics(self, transport: str) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
         transports = transport_status()
         selected = list(TRANSPORTS) if transport == "all" else [transport]
         checks = []
@@ -699,12 +697,12 @@ class TrueNASLibvirtProvider:
                 ])
         return checks, transports
 
-    def _network_diagnostics(self, transport: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    def _network_diagnostics(self, transport: str) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
         truenas = self.config.get("truenas", {})
         if not isinstance(truenas, dict):
             return [], {}
         checks = []
-        details: dict[str, Any] = {}
+        details: Dict[str, Any] = {}
         url = truenas.get("url")
         if isinstance(url, str) and url:
             parsed = urllib.parse.urlparse(url)
@@ -730,7 +728,7 @@ class TrueNASLibvirtProvider:
             details["storage"] = storage_results
         return checks, details
 
-    def _truenas_diagnostics(self) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    def _truenas_diagnostics(self) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
         try:
             with self._client() as client:
                 login(client, self.config)
@@ -748,7 +746,7 @@ class TrueNASLibvirtProvider:
             message = str(exc)
         return [doctor_check("truenas.login", False, f"TrueNAS API login/query failed: {message}", {"error": message})], None
 
-    def _truenas_permission_diagnostics(self, transport: str) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    def _truenas_permission_diagnostics(self, transport: str) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
         try:
             with self._client() as client:
                 login(client, self.config)
@@ -769,7 +767,7 @@ class TrueNASLibvirtProvider:
             message = str(exc)
         return [doctor_check("truenas.permissions", False, f"TrueNAS API permission check failed: {message}", {"error": message})], None
 
-    def health_check(self, params: dict[str, Any]) -> dict[str, Any]:
+    def health_check(self, params: Dict[str, Any]) -> Dict[str, Any]:
         transport = str(params.get("transport", "all"))
         if transport not in (*TRANSPORTS, "all"):
             raise ProviderError("transport_invalid", f"unsupported transport: {transport}")
@@ -804,7 +802,7 @@ class TrueNASLibvirtProvider:
         }
 
 
-    def pool_list(self, params: dict[str, Any]) -> dict[str, Any]:
+    def pool_list(self, params: Dict[str, Any]) -> Dict[str, Any]:
         with self._client() as client:
             login(client, self.config)
             rows = client.call("pool.query", [[], {"order_by": ["name"]}])
@@ -828,7 +826,7 @@ class TrueNASLibvirtProvider:
             pools.append(item)
         return {"pools": pools}
 
-    def vol_list(self, params: dict[str, Any]) -> dict[str, Any]:
+    def vol_list(self, params: Dict[str, Any]) -> Dict[str, Any]:
         pool = str(params["pool"])
         transport = params.get("transport")
         with self._client() as client:
@@ -848,7 +846,7 @@ class TrueNASLibvirtProvider:
             )
         )
 
-    def _pool_refresh_once(self, pool: str, transport: str, connect: bool) -> dict[str, Any]:
+    def _pool_refresh_once(self, pool: str, transport: str, connect: bool) -> Dict[str, Any]:
         refreshed = []
         with self._client() as client:
             login(client, self.config)
@@ -869,12 +867,12 @@ class TrueNASLibvirtProvider:
                 refreshed.append(volume)
         return {"pool": pool_space, "volumes": refreshed}
 
-    def pool_refresh(self, params: dict[str, Any]) -> dict[str, Any]:
+    def pool_refresh(self, params: Dict[str, Any]) -> Dict[str, Any]:
         pool = str(params["pool"])
         transport = str(params["transport"])
         connect = bool(params.get("connect", True))
         self._require_transport_ready(transport)
-        last_error: WebSocketError | None = None
+        last_error: Optional[WebSocketError] = None
         for attempt in range(2):
             try:
                 return self._pool_refresh_once(pool, transport, connect)
@@ -886,7 +884,7 @@ class TrueNASLibvirtProvider:
         assert last_error is not None
         raise last_error
 
-    def vol_create(self, params: dict[str, Any]) -> dict[str, Any]:
+    def vol_create(self, params: Dict[str, Any]) -> Dict[str, Any]:
         pool = str(params["pool"])
         name = str(params["name"])
         transport = str(params["transport"])
@@ -901,7 +899,7 @@ class TrueNASLibvirtProvider:
         volume.update({"export": export, "path": path})
         return volume
 
-    def vol_clone(self, params: dict[str, Any]) -> dict[str, Any]:
+    def vol_clone(self, params: Dict[str, Any]) -> Dict[str, Any]:
         pool = str(params["pool"])
         source = str(params["source"])
         target = str(params["target"])
@@ -919,7 +917,7 @@ class TrueNASLibvirtProvider:
         volume.update({"export": export, "path": path})
         return volume
 
-    def vol_resize(self, params: dict[str, Any]) -> dict[str, Any]:
+    def vol_resize(self, params: Dict[str, Any]) -> Dict[str, Any]:
         pool = str(params["pool"])
         name = str(params["name"])
         transport = str(params["transport"])
@@ -931,7 +929,7 @@ class TrueNASLibvirtProvider:
             row = self._resize_zvol(client, pool, name, capacity)
         return self._volume_from_dataset(pool, row)
 
-    def vol_path(self, params: dict[str, Any]) -> dict[str, Any]:
+    def vol_path(self, params: Dict[str, Any]) -> Dict[str, Any]:
         pool = str(params["pool"])
         name = str(params["name"])
         transport = str(params["transport"])
@@ -997,7 +995,7 @@ class TrueNASLibvirtProvider:
             client.call("nvmet.subsys.delete", [subsys_id, {"force": True}])
         ensure_service_enabled_and_running(client, "nvmet")
 
-    def vol_delete(self, params: dict[str, Any]) -> dict[str, Any]:
+    def vol_delete(self, params: Dict[str, Any]) -> Dict[str, Any]:
         pool = str(params["pool"])
         name = str(params["name"])
         transport = str(params["transport"])
@@ -1027,7 +1025,7 @@ class TrueNASLibvirtProvider:
             self._safe_delete_dataset(client, zvol)
         return {"deleted": True, "name": name, "transport": transport}
 
-    def dispatch(self, method: str, params: dict[str, Any]) -> Any:
+    def dispatch(self, method: str, params: Dict[str, Any]) -> Any:
         handlers = {
             "health.check": self.health_check,
             "pool.list": self.pool_list,
@@ -1070,7 +1068,7 @@ class UnixJsonRpcServer:
             writer.write(json.dumps(response, separators=(",", ":")) + "\n")
             writer.flush()
 
-    def _dispatch_line(self, line: str) -> dict[str, Any]:
+    def _dispatch_line(self, line: str) -> Dict[str, Any]:
         request_id = None
         try:
             request = json.loads(line)
@@ -1094,7 +1092,7 @@ class UnixJsonRpcServer:
             return {"jsonrpc": "2.0", "id": request_id, "error": {"code": "internal_error", "message": str(exc)}}
 
 
-def rpc_call(socket_path: str, method: str, params: dict[str, Any]) -> dict[str, Any]:
+def rpc_call(socket_path: str, method: str, params: Dict[str, Any]) -> Dict[str, Any]:
     request = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
         client.connect(socket_path)
@@ -1103,7 +1101,7 @@ def rpc_call(socket_path: str, method: str, params: dict[str, Any]) -> dict[str,
     return json.loads(response)
 
 
-def rpc_result(response: dict[str, Any]) -> Any:
+def rpc_result(response: Dict[str, Any]) -> Any:
     if "error" in response:
         error = response["error"]
         if isinstance(error, dict):
@@ -1112,12 +1110,12 @@ def rpc_result(response: dict[str, Any]) -> Any:
     return response.get("result")
 
 
-def error_report(config_path: str, transport: str, check_name: str, message: str) -> dict[str, Any]:
+def error_report(config_path: str, transport: str, check_name: str, message: str) -> Dict[str, Any]:
     check = doctor_check(check_name, False, message, {"config_path": config_path})
     return {"ok": False, "transport": transport, "checks": [check], "config": {"config_path": config_path}}
 
 
-def doctor_report(args: argparse.Namespace) -> dict[str, Any]:
+def doctor_report(args: argparse.Namespace) -> Dict[str, Any]:
     params = {"transport": args.transport}
     socket_path = Path(args.socket)
     if socket_path.exists():
@@ -1131,7 +1129,7 @@ def doctor_report(args: argparse.Namespace) -> dict[str, Any]:
         return error_report(args.config, args.transport, "config.load", str(exc))
 
 
-def print_doctor_text(report: dict[str, Any]) -> None:
+def print_doctor_text(report: Dict[str, Any]) -> None:
     status = "OK" if report.get("ok") else "FAILED"
     transport = report.get("transport", "all")
     print(f"Subvirt doctor: {status} (transport={transport})")

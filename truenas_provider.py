@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Small TrueNAS JSON-RPC client for the libvirt storage prototype."""
 
-from __future__ import annotations
-
 import argparse
 import base64
 import hashlib
@@ -14,6 +12,7 @@ import ssl
 import struct
 import sys
 import urllib.parse
+from typing import Dict, List, Optional, Tuple, Union
 
 
 class WebSocketError(RuntimeError):
@@ -43,7 +42,7 @@ class JsonRpcWebSocket:
             raise ValueError("url must use ws:// or wss://")
         self.parsed = parsed
         self.tls_verify = tls_verify
-        self.sock: socket.socket | ssl.SSLSocket | None = None
+        self.sock = None  # type: Optional[Union[socket.socket, ssl.SSLSocket]]
         self.next_id = 1
 
     def __enter__(self) -> "JsonRpcWebSocket":
@@ -59,7 +58,7 @@ class JsonRpcWebSocket:
         if host is None:
             raise ValueError("url is missing hostname")
         port = self.parsed.port or (443 if self.parsed.scheme == "wss" else 80)
-        raw: socket.socket | None = None
+        raw = None  # type: Optional[socket.socket]
         try:
             raw = socket.create_connection((host, port), timeout=15)
             if self.parsed.scheme == "wss":
@@ -98,7 +97,7 @@ class JsonRpcWebSocket:
                 self.sock = None
             raise WebSocketError(f"TrueNAS API connection failed for {self.parsed.geturl()}: {exc}") from None
 
-    def call(self, method: str, params: list[object] | None = None) -> object:
+    def call(self, method: str, params: Optional[List[object]] = None) -> object:
         request_id = self.next_id
         self.next_id += 1
         self._send_json(
@@ -133,7 +132,7 @@ class JsonRpcWebSocket:
         payload = json.dumps(data, separators=(",", ":")).encode("utf-8")
         self._send_frame(payload)
 
-    def _recv_json(self) -> dict[str, object]:
+    def _recv_json(self) -> Dict[str, object]:
         payload = self._recv_frame()
         return json.loads(payload.decode("utf-8"))
 
@@ -184,7 +183,7 @@ class JsonRpcWebSocket:
         return data
 
 
-def load_config(path: str) -> dict[str, object]:
+def load_config(path: str) -> Dict[str, object]:
     try:
         with open(path, "r", encoding="utf-8") as handle:
             config = json.load(handle)
@@ -208,14 +207,14 @@ def load_api_key(path: str) -> str:
     return api_key
 
 
-def get_truenas_config(config: dict[str, object]) -> dict[str, object]:
+def get_truenas_config(config: Dict[str, object]) -> Dict[str, object]:
     truenas = config.get("truenas")
     if not isinstance(truenas, dict):
         raise ConfigError("TrueNAS provider config must contain a 'truenas' object")
     return truenas
 
 
-def login(client: JsonRpcWebSocket, config: dict[str, object]) -> None:
+def login(client: JsonRpcWebSocket, config: Dict[str, object]) -> None:
     truenas = get_truenas_config(config)
     api_key = os.environ.get("TRUENAS_API_KEY")
     api_key_file = truenas.get("api_key_file")
@@ -243,7 +242,7 @@ def login(client: JsonRpcWebSocket, config: dict[str, object]) -> None:
         raise WebSocketError(f"TrueNAS API authentication failed for user {username!r}")
 
 
-def open_client(config: dict[str, object]) -> JsonRpcWebSocket:
+def open_client(config: Dict[str, object]) -> JsonRpcWebSocket:
     truenas = get_truenas_config(config)
     url = truenas.get("url")
     tls_verify = truenas.get("tls_verify", True)
@@ -275,7 +274,7 @@ LOCAL_ISCSI_INITIATOR_FILE = "/etc/iscsi/initiatorname.iscsi"
 LOCAL_NVME_HOSTNQN_FILE = "/etc/nvme/hostnqn"
 
 
-def _read_key_value_file(path: str, key: str) -> str | None:
+def _read_key_value_file(path: str, key: str) -> Optional[str]:
     try:
         with open(path, "r", encoding="utf-8") as handle:
             for line in handle:
@@ -328,7 +327,7 @@ def parse_size(value: str) -> int:
     return int(normalized)
 
 
-def managed_dataset_name(pool: str, config: dict[str, object]) -> str:
+def managed_dataset_name(pool: str, config: Dict[str, object]) -> str:
     namespace = config.get("namespace", {})
     assert isinstance(namespace, dict)
     dataset = namespace.get("dataset", "libvirt")
@@ -336,11 +335,11 @@ def managed_dataset_name(pool: str, config: dict[str, object]) -> str:
     return f"{pool}/{dataset}"
 
 
-def managed_zvol_name(pool: str, volume: str, config: dict[str, object]) -> str:
+def managed_zvol_name(pool: str, volume: str, config: Dict[str, object]) -> str:
     return f"{managed_dataset_name(pool, config)}/{volume}"
 
 
-def call_authenticated(config: dict[str, object], method: str, params: list[object] | None = None) -> object:
+def call_authenticated(config: Dict[str, object], method: str, params: Optional[List[object]] = None) -> object:
     with open_client(config) as client:
         login(client, config)
         return client.call(method, params or [])
@@ -447,13 +446,13 @@ def cmd_zvol_create(args: argparse.Namespace) -> None:
 
 
 
-def query_all(client: JsonRpcWebSocket, method: str, filters: list[object] | None = None) -> list[object]:
+def query_all(client: JsonRpcWebSocket, method: str, filters: Optional[List[object]] = None) -> List[object]:
     result = client.call(method, [filters or []])
     assert isinstance(result, list)
     return result
 
 
-def ensure_service_enabled_and_running(client: JsonRpcWebSocket, service: str) -> dict[str, object]:
+def ensure_service_enabled_and_running(client: JsonRpcWebSocket, service: str) -> Dict[str, object]:
     services = query_all(client, "service.query", [["service", "=", service]])
     if not services:
         raise WebSocketError(f"TrueNAS service not found: {service}")
@@ -483,7 +482,7 @@ def ensure_service_enabled_and_running(client: JsonRpcWebSocket, service: str) -
     }
 
 
-def ensure_iscsi_portal(client: JsonRpcWebSocket, ip: str) -> tuple[dict[str, object], bool]:
+def ensure_iscsi_portal(client: JsonRpcWebSocket, ip: str) -> Tuple[Dict[str, object], bool]:
     for portal in query_all(client, "iscsi.portal.query"):
         assert isinstance(portal, dict)
         listen = portal.get("listen", [])
@@ -497,7 +496,7 @@ def ensure_iscsi_portal(client: JsonRpcWebSocket, ip: str) -> tuple[dict[str, ob
     return portal, True
 
 
-def initiator_group_has_iqns(group: dict[str, object], iqns: list[str]) -> bool:
+def initiator_group_has_iqns(group: Dict[str, object], iqns: List[str]) -> bool:
     initiators = group.get("initiators", [])
     if not isinstance(initiators, list):
         return False
@@ -505,7 +504,7 @@ def initiator_group_has_iqns(group: dict[str, object], iqns: list[str]) -> bool:
     return all(iqn in current for iqn in iqns)
 
 
-def ensure_iscsi_initiator_group(client: JsonRpcWebSocket, iqns: list[str]) -> tuple[dict[str, object], bool]:
+def ensure_iscsi_initiator_group(client: JsonRpcWebSocket, iqns: List[str]) -> Tuple[Dict[str, object], bool]:
     for group in query_all(client, "iscsi.initiator.query"):
         assert isinstance(group, dict)
         if initiator_group_has_iqns(group, iqns):
@@ -518,7 +517,7 @@ def ensure_iscsi_initiator_group(client: JsonRpcWebSocket, iqns: list[str]) -> t
     return group, True
 
 
-def ensure_iscsi_initiator_group_members(client: JsonRpcWebSocket, group_id: int, iqns: list[str]) -> tuple[dict[str, object], bool]:
+def ensure_iscsi_initiator_group_members(client: JsonRpcWebSocket, group_id: int, iqns: List[str]) -> Tuple[Dict[str, object], bool]:
     groups = query_all(client, "iscsi.initiator.query", [["id", "=", group_id]])
     if not groups:
         raise WebSocketError(f"iSCSI initiator group not found: {group_id}")
@@ -540,8 +539,8 @@ def ensure_iscsi_target(
     alias: str,
     portal_id: int,
     initiator_id: int,
-    iqns: list[str],
-) -> tuple[dict[str, object], bool]:
+    iqns: List[str],
+) -> Tuple[Dict[str, object], bool]:
     desired_group = {"portal": portal_id, "initiator": initiator_id, "authmethod": "NONE"}
     for target in query_all(client, "iscsi.target.query"):
         assert isinstance(target, dict)
@@ -584,7 +583,7 @@ def ensure_iscsi_target(
     return target, True
 
 
-def ensure_iscsi_extent(client: JsonRpcWebSocket, name: str, zvol: str) -> tuple[dict[str, object], bool]:
+def ensure_iscsi_extent(client: JsonRpcWebSocket, name: str, zvol: str) -> Tuple[Dict[str, object], bool]:
     disk = f"zvol/{zvol}"
     for extent in query_all(client, "iscsi.extent.query", [["name", "=", name]]):
         assert isinstance(extent, dict)
@@ -610,7 +609,7 @@ def ensure_iscsi_mapping(
     client: JsonRpcWebSocket,
     target_id: int,
     extent_id: int,
-) -> tuple[dict[str, object], bool]:
+) -> Tuple[Dict[str, object], bool]:
     for mapping in query_all(client, "iscsi.targetextent.query"):
         assert isinstance(mapping, dict)
         if mapping.get("target") == target_id and mapping.get("extent") == extent_id:
@@ -668,7 +667,7 @@ def cmd_iscsi_export(args: argparse.Namespace) -> None:
 
 
 
-def ensure_nvmet_host(client: JsonRpcWebSocket, hostnqn: str) -> tuple[dict[str, object], bool]:
+def ensure_nvmet_host(client: JsonRpcWebSocket, hostnqn: str) -> Tuple[Dict[str, object], bool]:
     for host in query_all(client, "nvmet.host.query", [["hostnqn", "=", hostnqn]]):
         assert isinstance(host, dict)
         return host, False
@@ -677,7 +676,7 @@ def ensure_nvmet_host(client: JsonRpcWebSocket, hostnqn: str) -> tuple[dict[str,
     return host, True
 
 
-def ensure_nvmet_subsys(client: JsonRpcWebSocket, name: str) -> tuple[dict[str, object], bool]:
+def ensure_nvmet_subsys(client: JsonRpcWebSocket, name: str) -> Tuple[Dict[str, object], bool]:
     for subsys in query_all(client, "nvmet.subsys.query", [["name", "=", name]]):
         assert isinstance(subsys, dict)
         return subsys, False
@@ -686,7 +685,7 @@ def ensure_nvmet_subsys(client: JsonRpcWebSocket, name: str) -> tuple[dict[str, 
     return subsys, True
 
 
-def object_ref_id(value: object) -> int | None:
+def object_ref_id(value: object) -> Optional[int]:
     if isinstance(value, int):
         return value
     if isinstance(value, dict) and isinstance(value.get("id"), int):
@@ -694,7 +693,7 @@ def object_ref_id(value: object) -> int | None:
     return None
 
 
-def get_nvmet_subsys(client: JsonRpcWebSocket, subsys_id: int) -> dict[str, object]:
+def get_nvmet_subsys(client: JsonRpcWebSocket, subsys_id: int) -> Dict[str, object]:
     for subsys in query_all(client, "nvmet.subsys.query", [["id", "=", subsys_id]]):
         assert isinstance(subsys, dict)
         return subsys
@@ -705,7 +704,7 @@ def ensure_nvmet_namespace(
     client: JsonRpcWebSocket,
     subsys_id: int,
     zvol: str,
-) -> tuple[dict[str, object], bool]:
+) -> Tuple[Dict[str, object], bool]:
     device_path = f"zvol/{zvol}"
     for namespace in query_all(client, "nvmet.namespace.query"):
         assert isinstance(namespace, dict)
@@ -726,7 +725,7 @@ def ensure_nvmet_namespace(
     return namespace, True
 
 
-def ensure_nvmet_port(client: JsonRpcWebSocket, target_ip: str, port_number: int) -> tuple[dict[str, object], bool]:
+def ensure_nvmet_port(client: JsonRpcWebSocket, target_ip: str, port_number: int) -> Tuple[Dict[str, object], bool]:
     for port in query_all(client, "nvmet.port.query"):
         assert isinstance(port, dict)
         if (
@@ -758,7 +757,7 @@ def ensure_nvmet_host_subsys(
     client: JsonRpcWebSocket,
     host_id: int,
     subsys_id: int,
-) -> tuple[dict[str, object], bool]:
+) -> Tuple[Dict[str, object], bool]:
     for association in query_all(client, "nvmet.host_subsys.query"):
         assert isinstance(association, dict)
         if association_matches(association.get("host"), host_id) and association_matches(association.get("subsys"), subsys_id):
@@ -772,7 +771,7 @@ def ensure_nvmet_port_subsys(
     client: JsonRpcWebSocket,
     port_id: int,
     subsys_id: int,
-) -> tuple[dict[str, object], bool]:
+) -> Tuple[Dict[str, object], bool]:
     for association in query_all(client, "nvmet.port_subsys.query"):
         assert isinstance(association, dict)
         if association_matches(association.get("port"), port_id) and association_matches(association.get("subsys"), subsys_id):

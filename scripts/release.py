@@ -353,6 +353,26 @@ def artifact_files(ctx: Context, distro: str, suffix: str) -> list[Path]:
     return sorted(path for path in root.rglob("*") if path.is_file() and path.name.endswith(suffix))
 
 
+def ubuntu_artifact_suite(ctx: Context, path: Path, default_suite: str) -> str:
+    root = Path("artifacts") / ctx.build_id / "ubuntu"
+    if path.parent == root:
+        return default_suite
+    if path.parent.parent == root:
+        return path.parent.name
+    rel = path.relative_to(root).as_posix()
+    raise SystemExit(f"unexpected Ubuntu artifact path: {rel}")
+
+
+def alma_artifact_version(ctx: Context, path: Path, default_version: str) -> str:
+    root = Path("artifacts") / ctx.build_id / "alma"
+    if path.parent == root:
+        return default_version
+    if path.parent.parent == root and path.parent.name.isdigit():
+        return path.parent.name
+    rel = path.relative_to(root).as_posix()
+    raise SystemExit(f"unexpected Alma artifact path: {rel}")
+
+
 def validate_release_evidence(ctx: Context) -> None:
     run([
         sys.executable,
@@ -432,10 +452,9 @@ def public_stable_urls(ctx: Context) -> list[str]:
     ]
     debs = artifact_files(ctx, "ubuntu", ".deb")
     if debs:
-        apt_suites = set(public["apt_distributions"])
-        suites = sorted({path.parent.name for path in debs if path.parent.name in apt_suites})
-        if not suites:
-            suites = [public["apt_distribution"]]
+        default_suite = public["apt_distribution"]
+        deb_suites = [(path, ubuntu_artifact_suite(ctx, path, default_suite)) for path in debs]
+        suites = sorted({suite for _path, suite in deb_suites})
         for suite in suites:
             urls.extend([
                 f"{base}/apt/ubuntu/dists/{suite}/Release",
@@ -443,8 +462,8 @@ def public_stable_urls(ctx: Context) -> list[str]:
                 f"{base}/apt/ubuntu/dists/{suite}/stable/binary-amd64/Packages.gz",
             ])
         urls.extend(
-            f"{base}/apt/ubuntu/pool/stable/{path.parent.name if path.parent.name in apt_suites else public['apt_distribution']}/{path.name}"
-            for path in debs
+            f"{base}/apt/ubuntu/pool/stable/{suite}/{path.name}"
+            for path, suite in deb_suites
         )
     rpms = [
         path for path in artifact_files(ctx, "alma", ".rpm")
@@ -452,16 +471,15 @@ def public_stable_urls(ctx: Context) -> list[str]:
     ]
     if rpms:
         default_version = public["yum_distro_path"].strip("/").split("/")[-1]
-        versions = sorted({path.parent.name for path in rpms if path.parent.name.isdigit()})
-        if not versions:
-            versions = [default_version]
+        rpm_versions = [(path, alma_artifact_version(ctx, path, default_version)) for path in rpms]
+        versions = sorted({version for _path, version in rpm_versions})
         for version in versions:
             yum_path = f"almalinux/{version}"
             urls.extend([
                 f"{base}/yum/{yum_path}/stable/repodata/repomd.xml",
                 f"{base}/yum/{yum_path}/stable/repodata/repomd.xml.asc",
             ])
-        urls.extend(f"{base}/yum/almalinux/{path.parent.name if path.parent.name.isdigit() else default_version}/stable/{path.name}" for path in rpms)
+        urls.extend(f"{base}/yum/almalinux/{version}/stable/{path.name}" for path, version in rpm_versions)
     if not debs and not rpms:
         raise SystemExit(f"no public-verifiable packages found in artifacts/{ctx.build_id}")
     return urls

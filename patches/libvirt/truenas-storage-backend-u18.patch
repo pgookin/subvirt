@@ -197,7 +197,7 @@ diff -ruN libvirt-u18-clean.orig/src/storage/storage_backend.c libvirt-u18-clean
 diff -ruN libvirt-u18-clean.orig/src/storage/storage_backend_truenas.c libvirt-u18-clean/src/storage/storage_backend_truenas.c
 --- libvirt-u18-clean.orig/src/storage/storage_backend_truenas.c	1969-12-31 19:00:00.000000000 -0500
 +++ libvirt-u18-clean/src/storage/storage_backend_truenas.c	2026-07-08 03:53:35.590361312 -0400
-@@ -0,0 +1,593 @@
+@@ -0,0 +1,592 @@
 +/*
 + * storage_backend_truenas.c: storage backend for TrueNAS provider daemon
 + */
@@ -258,25 +258,24 @@ diff -ruN libvirt-u18-clean.orig/src/storage/storage_backend_truenas.c libvirt-u
 +static int
 +virStorageBackendTrueNASConnect(void)
 +{
-+    int fd = -1;
-+    struct sockaddr_un addr;
++    struct sockaddr_un addr = { 0 };
++    int fd;
 +
 +    if ((fd = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
 +        virReportSystemError(errno, "%s", _("failed to create TrueNAS provider socket"));
 +        return -1;
 +    }
 +
-+    memset(&addr, 0, sizeof(addr));
 +    addr.sun_family = AF_UNIX;
-+    if (!virStrcpyStatic(addr.sun_path, TRUENAS_PROVIDER_SOCKET)) {
++    if (virStrcpyStatic(addr.sun_path, TRUENAS_PROVIDER_SOCKET) < 0) {
 +        virReportError(VIR_ERR_INTERNAL_ERROR, "%s", _("TrueNAS provider socket path is too long"));
 +        VIR_FORCE_CLOSE(fd);
 +        return -1;
 +    }
 +
-+    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
++    if (connect(fd, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
 +        virReportSystemError(errno,
-+                             _("failed to connect to TrueNAS provider socket %s"),
++                             _("TrueNAS provider daemon is not available at %s; install/configure the truenas-libvirt-provider package and start truenas-libvirt-provider.service"),
 +                             TRUENAS_PROVIDER_SOCKET);
 +        VIR_FORCE_CLOSE(fd);
 +        return -1;

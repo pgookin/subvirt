@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import socket
 import ssl
 import subprocess
@@ -570,30 +571,62 @@ class TrueNASLibvirtProvider:
     def _nvme_path(self, export: Dict[str, Any]) -> str:
         subnqn = str(export["subnqn"])
         deadline = time.time() + DEFAULT_TIMEOUT
+        discovered_paths = []
         while time.time() < deadline:
             run_command(["udevadm", "settle"], check=False)
             result = run_command(["nvme", "list-subsys", "-o", "json"], check=False)
             if result.returncode == 0:
-                try:
-                    hosts = json.loads(result.stdout)
-                except json.JSONDecodeError:
-                    hosts = []
-                for host in hosts if isinstance(hosts, list) else []:
-                    for subsystem in host.get("Subsystems", []) if isinstance(host, dict) else []:
-                        if not isinstance(subsystem, dict) or subsystem.get("NQN") != subnqn:
-                            continue
-                        for path in subsystem.get("Paths", []):
-                            if not isinstance(path, dict) or not path.get("Name"):
-                                continue
-                            devname = f"{path['Name']}n1"
-                            match = self._find_by_id_target(devname)
-                            if match:
-                                return match
+                discovered_paths = self._nvme_subsystem_devnames(result.stdout, subnqn)
+                for devname in discovered_paths:
+                    match = self._find_by_id_target(devname)
+                    if match:
+                        return match
             time.sleep(0.5)
-        raise ProviderError("path_not_found", "stable NVMe /dev/disk/by-id path was not found", {"subnqn": subnqn})
+        raise ProviderError("path_not_found", "stable NVMe /dev/disk/by-id path was not found", {"subnqn": subnqn, "devnames": discovered_paths})
+
+    @staticmethod
+    def _nvme_subsystem_devnames(output: str, subnqn: str) -> List[str]:
+        try:
+            parsed = json.loads(output)
+        except json.JSONDecodeError:
+            return []
+
+        subsystem_groups = []
+        if isinstance(parsed, dict):
+            subsystem_groups.append(parsed.get("Subsystems", []))
+        elif isinstance(parsed, list):
+            for host in parsed:
+                if isinstance(host, dict):
+                    subsystem_groups.append(host.get("Subsystems", []))
+
+        devnames = []
+        for subsystems in subsystem_groups:
+            if not isinstance(subsystems, list):
+                continue
+            current_matches = False
+            for subsystem in subsystems:
+                if not isinstance(subsystem, dict):
+                    continue
+                if "NQN" in subsystem:
+                    current_matches = subsystem.get("NQN") == subnqn
+                if not current_matches:
+                    continue
+                paths = subsystem.get("Paths", [])
+                if not isinstance(paths, list):
+                    continue
+                for path in paths:
+                    if not isinstance(path, dict) or not path.get("Name"):
+                        continue
+                    devname = Path(str(path["Name"])).name
+                    if re.match(r"^nvme[0-9]+$", devname):
+                        devname = f"{devname}n1"
+                    if devname not in devnames:
+                        devnames.append(devname)
+        return devnames
 
     @staticmethod
     def _find_by_id_target(devname: str) -> Optional[str]:
+        devname = Path(devname).name
         by_id = Path("/dev/disk/by-id")
         if not by_id.exists():
             return None

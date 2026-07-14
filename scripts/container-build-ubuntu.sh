@@ -31,6 +31,7 @@ IMAGE=${SUBVIRT_UBUNTU_BUILD_IMAGE:-$IMAGE}
 CONTAINERFILE=${SUBVIRT_UBUNTU_CONTAINERFILE:-$CONTAINERFILE}
 SRC_DIR=${SUBVIRT_UBUNTU_LIBVIRT_SRC:-}
 if [[ -z "$SRC_DIR" ]]; then
+  ./scripts/refresh-locked-libvirt-sources.sh "$TARGET_ID"
   SRC_DIR=$(find build -maxdepth 1 -type d -name "${SRC_GLOB#build/}" | sort | tail -1)
 fi
 if [[ -z "$SRC_DIR" ]]; then

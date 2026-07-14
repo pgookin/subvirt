@@ -542,8 +542,17 @@ class TrueNASLibvirtProvider:
     def _connect_nvme(self, export: Dict[str, Any]) -> None:
         subnqn = str(export["subnqn"])
         result = run_command(["nvme", "connect", "-t", "tcp", "-a", str(export["traddr"]), "-s", str(export["trsvcid"]), "-n", subnqn], check=False)
-        if result.returncode != 0 and "already connected" not in result.stderr.lower() and "duplicate connect" not in result.stderr.lower():
+        if result.returncode != 0 and not self._nvme_connect_already_active(result.stderr):
             raise ProviderError("nvme_connect_failed", "NVMe-oF connect failed", {"stderr": result.stderr, "stdout": result.stdout})
+
+    @staticmethod
+    def _nvme_connect_already_active(stderr: str) -> bool:
+        normalized = stderr.lower()
+        return (
+            "already connected" in normalized
+            or "duplicate connect" in normalized
+            or "operation already in progress" in normalized
+        )
 
     def _find_by_id(self, prefixes: List[str], timeout: int = DEFAULT_TIMEOUT) -> str:
         deadline = time.time() + timeout

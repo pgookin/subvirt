@@ -70,5 +70,21 @@ class NvmeSubsystemDevnameTests(unittest.TestCase):
         self.assertEqual(TrueNASLibvirtProvider._nvme_subsystem_devnames(output, SUBNQN), [])
 
 
+class NvmeConnectAlreadyActiveTests(unittest.TestCase):
+    def test_duplicate_connect_messages_are_idempotent(self) -> None:
+        messages = [
+            "already connected",
+            "Duplicate connect",
+            "Failed to write to /dev/nvme-fabrics: Operation already in progress",
+        ]
+
+        for message in messages:
+            with self.subTest(message=message):
+                self.assertTrue(TrueNASLibvirtProvider._nvme_connect_already_active(message))
+
+    def test_unrelated_connect_failure_is_not_idempotent(self) -> None:
+        self.assertFalse(TrueNASLibvirtProvider._nvme_connect_already_active("connection timed out"))
+
+
 if __name__ == "__main__":
     unittest.main()

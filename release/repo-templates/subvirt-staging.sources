@@ -1,4 +1,5 @@
 Types: deb
+Architectures: amd64
 URIs: https://repo.example.com/apt/ubuntu
 Suites: noble
 Components: staging

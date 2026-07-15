@@ -1,4 +1,5 @@
 Types: deb
+Architectures: amd64
 URIs: https://repo.subvirt.net/apt/ubuntu
 Suites: noble
 Components: stable

@@ -28,6 +28,7 @@ curl -fsSL https://repo.subvirt.net/keys/subvirt.gpg | sudo tee /usr/share/keyri
 
 sudo tee /etc/apt/sources.list.d/subvirt.sources >/dev/null <<'EOF'
 Types: deb
+Architectures: amd64
 URIs: https://repo.subvirt.net/apt/ubuntu
 Suites: VERSION_CODENAME
 Components: stable

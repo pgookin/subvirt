@@ -1,7 +1,7 @@
 {
   "almalinux_10": {
     "package": "libvirt",
-    "version": "11.10.0-12.el10_2.alma.1"
+    "version": "11.10.0-12.4.el10_2.alma.1"
   },
   "almalinux_9": {
     "package": "libvirt",

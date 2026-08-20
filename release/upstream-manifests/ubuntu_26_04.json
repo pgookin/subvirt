@@ -3,11 +3,11 @@
   "generated_checks": [
     {
       "path": "build/libvirt-u26-12.0.0/debian/changelog",
-      "sha256": "c00798451f641dd3286082b75da4024ed66b84508eb97a08c2c0b884eaafa337",
-      "size": 224117
+      "sha256": "31516c3aeee32300db68f71432f43d65bee04d3eab982edc75c31f36525b550b",
+      "size": 225528
     }
   ],
-  "local_version": "12.0.0-1ubuntu5.2+truenas1",
+  "local_version": "12.0.0-1ubuntu5.3+truenas1",
   "package": "libvirt0",
   "patches": [
     {
@@ -19,14 +19,14 @@
   "schema_version": 1,
   "source_files": [
     {
-      "path": "sources/u26/libvirt_12.0.0-1ubuntu5.2.debian.tar.xz",
-      "sha256": "d8cbac7b6fd79a6c169ebe1c2d9fb0b41aa259833052ec78dc19496f26e85602",
-      "size": 118444
+      "path": "sources/u26/libvirt_12.0.0-1ubuntu5.3.debian.tar.xz",
+      "sha256": "fc23f1cc262c90c555267784a3105b057e1e358e565f57f5fc6211691f69134c",
+      "size": 125744
     },
     {
-      "path": "sources/u26/libvirt_12.0.0-1ubuntu5.2.dsc",
-      "sha256": "da5a91c355a7bd453bf03a637244c332361f893b13475595920459da56a648a5",
-      "size": 7310
+      "path": "sources/u26/libvirt_12.0.0-1ubuntu5.3.dsc",
+      "sha256": "9f18af5bb1fb3845e9bd4c02525c50dc89e8c8b7b65267d3280623e8321bb43c",
+      "size": 7952
     },
     {
       "path": "sources/u26/libvirt_12.0.0.orig.tar.xz",
@@ -42,5 +42,5 @@
   "source_metadata": "configured-mirror:ubuntu/dists/resolute-updates/main/binary-amd64/Packages.xz",
   "suite": "resolute",
   "support_tier": "standard",
-  "upstream_version": "12.0.0-1ubuntu5.2"
+  "upstream_version": "12.0.0-1ubuntu5.3"
 }

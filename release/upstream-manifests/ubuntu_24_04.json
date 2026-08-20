@@ -3,11 +3,11 @@
   "generated_checks": [
     {
       "path": "build/libvirt-u24-10.0.0/debian/changelog",
-      "sha256": "4fc70085644234102b6601364043458f636d49bfd9d5c50a071a891cee8b86ee",
-      "size": 585007
+      "sha256": "986c0f43e66570928a92ac82c1f88e22b113f59472730f74288a4edaab7c099b",
+      "size": 586583
     }
   ],
-  "local_version": "10.0.0-2ubuntu8.15+truenas1",
+  "local_version": "10.0.0-2ubuntu8.16+truenas1",
   "package": "libvirt0",
   "patches": [
     {
@@ -19,14 +19,14 @@
   "schema_version": 1,
   "source_files": [
     {
-      "path": "sources/u24/libvirt_10.0.0-2ubuntu8.15.debian.tar.xz",
-      "sha256": "c8dc782ea9abfc16db889459983529f82efdd1614ccc44d2237edb9cbd7ee90b",
-      "size": 195020
+      "path": "sources/u24/libvirt_10.0.0-2ubuntu8.16.debian.tar.xz",
+      "sha256": "038a12c89034fe2c33d7bb33757a0fb66cdfd666e3ac9b70b7eb46f20ca3191d",
+      "size": 200996
     },
     {
-      "path": "sources/u24/libvirt_10.0.0-2ubuntu8.15.dsc",
-      "sha256": "f599f93ad585a75de7e3f288ff5fefdc6c73bb70b7c6c57573c6ca29340b3754",
-      "size": 5623
+      "path": "sources/u24/libvirt_10.0.0-2ubuntu8.16.dsc",
+      "sha256": "021b33937c42dd7ecc065b440f8c220bea580bac8ec2b82334ea97eb09bec55e",
+      "size": 6267
     },
     {
       "path": "sources/u24/libvirt_10.0.0.orig.tar.xz",
@@ -42,5 +42,5 @@
   "source_metadata": "configured-mirror:ubuntu/dists/noble-updates/main/binary-amd64/Packages.xz",
   "suite": "noble",
   "support_tier": "standard",
-  "upstream_version": "10.0.0-2ubuntu8.15"
+  "upstream_version": "10.0.0-2ubuntu8.16"
 }

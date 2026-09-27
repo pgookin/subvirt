@@ -17,14 +17,14 @@
   },
   "ubuntu_22_04": {
     "package": "libvirt0",
-    "version": "8.0.0-1ubuntu7.19"
+    "version": "8.0.0-1ubuntu7.20"
   },
   "ubuntu_24_04": {
     "package": "libvirt0",
-    "version": "10.0.0-2ubuntu8.16"
+    "version": "10.0.0-2ubuntu8.17"
   },
   "ubuntu_26_04": {
     "package": "libvirt0",
-    "version": "12.0.0-1ubuntu5.3"
+    "version": "12.0.0-1ubuntu5.4"
   }
 }

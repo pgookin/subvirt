@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -20,6 +21,39 @@ def sanitize(value: str) -> str:
 def add_unique(items: list[str], item: str) -> None:
     if item not in items:
         items.append(item)
+
+
+def release_input_digest(ubuntu_versions: list[str], alma_versions: list[str]) -> str:
+    payload = json.dumps(
+        {
+            "alma": sorted(alma_versions),
+            "ubuntu": sorted(ubuntu_versions),
+        },
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
+
+
+def candidate_build_id(
+    ubuntu_versions: list[str],
+    alma_versions: list[str],
+    build_suffix: str = "",
+) -> str:
+    changed_label = "-".join(
+        sanitize(item.split("=", 1)[0].replace("ubuntu-", "u"))
+        for item in ubuntu_versions
+    ) or "no-ubuntu"
+    alma_label = "-".join(
+        sanitize(item.split("=", 1)[0].replace("almalinux-", "al"))
+        for item in alma_versions
+    ) or "no-alma"
+    digest = release_input_digest(ubuntu_versions, alma_versions)
+    parts = ["upstream", changed_label, alma_label, digest]
+    suffix = sanitize(build_suffix)
+    if suffix:
+        parts.append(suffix)
+    return "-".join(parts)
 
 
 def include_lab_targets(config: dict[str, Any], ubuntu: list[str], alma: list[str]) -> None:
@@ -65,6 +99,11 @@ def main() -> int:
     parser.add_argument("--report", type=Path, help="upstream check report used to gate distro builds")
     parser.add_argument("--config", default="release/release.example.json", type=Path)
     parser.add_argument("--github-output", default="")
+    parser.add_argument(
+        "--build-suffix",
+        default="",
+        help="unique build invocation suffix, such as a CI run ID and attempt",
+    )
     args = parser.parse_args()
 
     lock: dict[str, Any] = json.loads(args.lock.read_text(encoding="utf-8"))
@@ -86,10 +125,7 @@ def main() -> int:
         if target.id in alma_target_ids and version:
             alma_versions.append(f"{target.id}={version}")
     alma = str(lock.get("almalinux_10", lock.get("alma", {})).get("version", ""))
-    changed_label = "-".join(sanitize(item.split("=", 1)[0].replace("ubuntu-", "u")) for item in ubuntu_versions) or "no-ubuntu"
-    alma_label = "-".join(sanitize(item.split("=", 1)[0].replace("almalinux-", "al")) for item in alma_versions) or "no-alma"
-    alma_version_label = "-".join(sanitize(item.split("=", 1)[1]) for item in alma_versions) or sanitize(alma)
-    build_id = f"upstream-{changed_label}-{alma_label}-{alma_version_label}"
+    build_id = candidate_build_id(ubuntu_versions, alma_versions, args.build_suffix)
     outputs = {
         "ubuntu_versions": ",".join(ubuntu_versions),
         "ubuntu_targets": ",".join(ubuntu_target_ids),

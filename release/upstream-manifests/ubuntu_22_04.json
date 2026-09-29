@@ -3,11 +3,11 @@
   "generated_checks": [
     {
       "path": "build/libvirt-u22-8.0.0/debian/changelog",
-      "sha256": "f81a312d08760e44225143dfb95dacaec4854dc3606eb69e3eef435af5b96f8e",
-      "size": 534885
+      "sha256": "45731cbe2bcdd34ed37f531ccbf39bf1211e6606e1e7c1d19c83772b624646db",
+      "size": 535477
     }
   ],
-  "local_version": "8.0.0-1ubuntu7.20+truenas1",
+  "local_version": "8.0.0-1ubuntu7.21+truenas1",
   "package": "libvirt0",
   "patches": [
     {
@@ -19,14 +19,14 @@
   "schema_version": 1,
   "source_files": [
     {
-      "path": "sources/u22/libvirt_8.0.0-1ubuntu7.20.debian.tar.xz",
-      "sha256": "40b45bb3c2211b81811157dd57128af5c70cf7f0bc131f93523b7b184415738a",
-      "size": 193512
+      "path": "sources/u22/libvirt_8.0.0-1ubuntu7.21.debian.tar.xz",
+      "sha256": "d3a48a056c9a772247c815eeaaf35943f1e7cb0fbbda07cc3219801a8d71a4ff",
+      "size": 194948
     },
     {
-      "path": "sources/u22/libvirt_8.0.0-1ubuntu7.20.dsc",
-      "sha256": "d20a008f0ad1e2dbe74be28dc4a248f61819ff25b9b35c6649ba9461c8bee8cb",
-      "size": 4775
+      "path": "sources/u22/libvirt_8.0.0-1ubuntu7.21.dsc",
+      "sha256": "f35bdaa28a8ce5b8fd72974ab2c5b4be4044ed87ed6d12aa79ed90e1f70b78d1",
+      "size": 5343
     },
     {
       "path": "sources/u22/libvirt_8.0.0.orig.tar.xz",
@@ -37,5 +37,5 @@
   "source_metadata": "configured-mirror:ubuntu/dists/jammy-updates/main/binary-amd64/Packages.xz",
   "suite": "jammy",
   "support_tier": "standard",
-  "upstream_version": "8.0.0-1ubuntu7.20"
+  "upstream_version": "8.0.0-1ubuntu7.21"
 }

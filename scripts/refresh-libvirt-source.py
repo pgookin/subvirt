@@ -276,18 +276,27 @@ def refresh_ubuntu(version: str, config_path: Path, target_id: str | None = None
 
 
 def rpm_source_path(version: str, target: AlmaTarget) -> Path:
-    candidates = sorted((SOURCES / target.source_dir).glob(f"libvirt-{version}.src.rpm"))
-    candidates += sorted((SOURCES / target.source_dir).glob("libvirt-*.src.rpm"))
-    if candidates:
-        return candidates[-1]
-    ensure_tool("dnf")
     out = SOURCES / target.source_dir
-    out.mkdir(parents=True, exist_ok=True)
-    run(["dnf", "download", "--source", "--destdir", str(out), f"libvirt-{version}"])
-    candidates = sorted(out.glob(f"libvirt-{version}.src.rpm")) or sorted(out.glob("libvirt-*.src.rpm"))
-    if not candidates:
-        raise SystemExit(f"no libvirt source RPM found in {out}")
-    return candidates[-1]
+    source = out / f"libvirt-{version}.src.rpm"
+    if not source.is_file():
+        ensure_tool("dnf")
+        out.mkdir(parents=True, exist_ok=True)
+        run(["dnf", "download", "--source", "--destdir", str(out), f"libvirt-{version}"])
+    if not source.is_file():
+        raise SystemExit(f"requested libvirt source RPM was not downloaded: {source}")
+
+    # Check the header before extraction and before rewriting the local Release.
+    # A stale or mislabeled cache entry must never become a new upstream build.
+    ensure_tool("rpm")
+    result = subprocess.run(
+        ["rpm", "-qp", "--queryformat", "%{NAME}-%{VERSION}-%{RELEASE}\n", str(source)],
+        check=True, capture_output=True, text=True,
+    )
+    actual = result.stdout.strip()
+    expected = f"libvirt-{version}"
+    if actual != expected:
+        raise SystemExit(f"source RPM mismatch for {source}: expected {expected}, got {actual}")
+    return source
 
 
 def spec_set_truenas_release(spec: Path, version: str, target: AlmaTarget) -> None:
@@ -404,7 +413,7 @@ def refresh_alma_in_container(version: str, target: AlmaTarget) -> None:
 
 def refresh_alma(version: str, config_path: Path, target_id: str | None = None) -> None:
     target = alma_target(load_config(config_path), target_id=target_id)
-    required = ["rpm2cpio", "cpio", "patch", "dnf"]
+    required = ["rpm", "rpm2cpio", "cpio", "patch", "dnf"]
     if os.environ.get("SUBVIRT_REFRESH_IN_CONTAINER") != "1" and any(not has_tool(tool) for tool in required):
         refresh_alma_in_container(version, target)
         return

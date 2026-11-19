@@ -3,11 +3,11 @@
   "generated_checks": [
     {
       "path": "build/libvirt.spec",
-      "sha256": "09d15a4bd7d3d264bf7f6d7b9666a3089b1a9f34a34b0fa86cbaaa0916599d39",
-      "size": 141125
+      "sha256": "63f12db60fefcc5c791a288a94a4d7da929813698f2f281f8b3bbdbae969f182",
+      "size": 129772
     }
   ],
-  "local_version": "11.10.0-12.7.el9_8.alma.1.truenas1",
+  "local_version": "11.10.0-19.el9_9.alma.1.truenas1",
   "package": "libvirt",
   "patches": [
     {
@@ -19,13 +19,13 @@
   "schema_version": 1,
   "source_files": [
     {
-      "path": "sources/al9/libvirt-11.10.0-12.7.el9_8.alma.1.src.rpm",
-      "sha256": "760f4d7a7f1a5c5b02a297f7056abeae04afe4dbe1db5a804e1949511be39861",
-      "size": 10697513
+      "path": "sources/al9/libvirt-11.10.0-19.el9_9.alma.1.src.rpm",
+      "sha256": "f5a422e72d81e3ac1076f549fff04d6951109d834dac905d0fe1b695ec94f7d2",
+      "size": 10709535
     }
   ],
-  "source_metadata": "configured-mirror:almalinux/9/AppStream/x86_64/os/repodata/9f7afd3deb7f95c5d67a49dfd2e06d30f9d1f32f116ff873eb5d1e737626f15a-primary.xml.gz",
+  "source_metadata": "configured-mirror:almalinux/9/AppStream/x86_64/os/repodata/ac619db4c04d4f667af75bcd7e4dd093f0e4576276afe5603c27154b66878c75-primary.xml.gz",
   "suite": "9",
   "support_tier": "standard",
-  "upstream_version": "11.10.0-12.7.el9_8.alma.1"
+  "upstream_version": "11.10.0-19.el9_9.alma.1"
 }

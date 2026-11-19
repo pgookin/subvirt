@@ -1,11 +1,11 @@
 {
   "almalinux_10": {
     "package": "libvirt",
-    "version": "11.10.0-12.9.el10_2.alma.1"
+    "version": "12.5.0-4.el10_3.alma.1"
   },
   "almalinux_9": {
     "package": "libvirt",
-    "version": "11.10.0-12.7.el9_8.alma.1"
+    "version": "11.10.0-19.el9_9.alma.1"
   },
   "ubuntu_18_04": {
     "package": "libvirt0",
